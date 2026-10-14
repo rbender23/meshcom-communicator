@@ -1,0 +1,19 @@
+[Network]
+UDP_BIND_IP = 0.0.0.0
+UDP_PORT = 1799
+WEB_PORT = 5000
+NODE_IP = 192.168.30.174
+
+[Radio]
+# Ersetze NOCALL durch dein eigenes Rufzeichen
+MY_CALL = NOCALL
+LOCAL_NODE_CALL = NOCALL-12
+TARGET_TG = 26257
+
+[Pushover]
+# Hier deine Pushover-Schlüssel eintragen (falls gewünscht)
+TOKEN = dein_pushover_token_hier
+USER = dein_pushover_user_hier
+
+[Database]
+DB_FILE = ~/meshcom-gateway/meshcom.db
