@@ -1,0 +1,11 @@
+# Konfiguration mit privaten Tokens ignorieren
+*.ini
+
+# SQLite Datenbanken ignorieren
+*.db
+*.sqlite
+*.sqlite3
+
+# Python Cache ignorieren
+__pycache__/
+*.pyc
