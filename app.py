@@ -39,7 +39,7 @@ TARGET_TG = config.get('Radio', 'TARGET_TG', fallback="26257")
 PUSHOVER_TOKEN = config.get('Pushover', 'TOKEN', fallback="")
 PUSHOVER_USER = config.get('Pushover', 'USER', fallback="")
 
-raw_db_path = config.get('Database', 'DB_FILE', fallback="~/meshcom-gateway/meshcom.db")
+raw_db_path = config.get('Database', 'DB_FILE', fallback="~/meshcom-communicator/meshcom.db")
 DB_FILE = os.path.expanduser(raw_db_path)
 
 # --- ENDE KONFIGURATION ---

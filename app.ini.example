@@ -16,4 +16,4 @@ TOKEN = dein_pushover_token_hier
 USER = dein_pushover_user_hier
 
 [Database]
-DB_FILE = ~/meshcom-gateway/meshcom.db
+DB_FILE = ~/meshcom-communicator/meshcom.db
