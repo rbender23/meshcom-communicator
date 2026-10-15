@@ -31,7 +31,7 @@
     .udp-tx { color: #ffca28; }
     .udp-rx { color: #81c784; }
 
-    /* Heard Nodes Cards (kompakter) */
+    /* Heard Nodes Cards */
     .heard-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
     .heard-card { background: #2c3034; border-radius: 6px; padding: 8px 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.35); }
     .heard-call { font-size: 1em; font-weight: bold; color: #64b5f6; margin-bottom: 4px; cursor: pointer; display: inline-block; }
@@ -41,9 +41,15 @@
     table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.9em; }
     th, td { text-align: left; padding: 7px 6px; border-bottom: 1px solid #333; }
     th { color: #90caf9; }
+    
     .clickable-call { cursor: pointer; color: #64b5f6; text-decoration: underline dotted; font-weight: bold; }
     .clickable-call:hover { color: #bbdefb; }
-    .path-text { color: #777; font-size: 0.85em; word-break: break-all; }
+    
+    /* NEU: Mention-Button Styles */
+    .mention-btn { color: #ffca28; cursor: pointer; font-weight: bold; font-size: 0.85em; background: #444; padding: 1px 5px; border-radius: 4px; margin-left: 4px; display: inline-block; }
+    .mention-btn:hover { background: #ffca28; color: #111; }
+
+    .path-text { color: #777; font-size: 0.85em; word-break: break-all; margin-left: 4px; }
     .dm { color: #81c784; font-weight: bold; }
     .tg { color: #ffb74d; }
     .broadcast { color: #e57373; }
@@ -232,6 +238,17 @@
       document.getElementById('text').focus();
     }
 
+    // NEU: Funktion um ein Rufzeichen in den Text einzufügen
+    function mentionCall(call) {
+      const cleanCall = call.split(',')[0].trim();
+      const input = document.getElementById('text');
+      if (input.value.length > 0 && !input.value.endsWith(' ')) {
+        input.value += ' ';
+      }
+      input.value += `@${cleanCall} `;
+      input.focus();
+    }
+
     function formatTime(timestampStr) {
       if (!timestampStr) return '';
       const parts = timestampStr.split(' ');
@@ -271,7 +288,9 @@
           <tr>
             <td class="time-col">${formatTime(m.time)}</td>
             <td>
-              <span class="clickable-call" title="Als Ziel setzen" onclick="selectCall('${origin}')">${origin}</span><span class="path-text">${path}</span>
+              <span class="clickable-call" title="Als DM setzen" onclick="selectCall('${origin}')">${origin}</span>
+              <span class="mention-btn" title="Im Text erwähnen (@)" onclick="mentionCall('${origin}')">@</span>
+              <span class="path-text">${path}</span>
             </td>
             <td class="${dstClass}">${m.dst}</td>
             <td>
@@ -302,7 +321,10 @@
 
         return `
           <div class="heard-card">
-            <div class="heard-call" title="Als Ziel setzen" onclick="selectCall('${n.call}')">${n.call}</div>
+            <div>
+              <div class="heard-call" title="Als DM setzen" onclick="selectCall('${n.call}')">${n.call}</div>
+              <span class="mention-btn" title="Im Text erwähnen (@)" onclick="mentionCall('${n.call}')">@</span>
+            </div>
             <div class="heard-grid">
               <div>Date: ${dateStr}</div>
               <div>Time: ${timeStr}</div>
@@ -344,8 +366,11 @@
 
           const isMe = n.call.startsWith(MY_CALL);
           const popupHtml = `
-            <div style="font-size: 1.1em; font-weight: bold; color: #64b5f6; cursor:pointer;" onclick="selectCall('${n.call}')">
-              📻 ${n.call}
+            <div>
+              <div style="font-size: 1.1em; font-weight: bold; color: #64b5f6; cursor:pointer; display:inline-block;" onclick="selectCall('${n.call}')">
+                📻 ${n.call}
+              </div>
+              <span class="mention-btn" title="Im Text erwähnen (@)" onclick="mentionCall('${n.call}')">@</span>
             </div>
             <div style="font-size: 0.85em; margin-top: 4px; line-height: 1.4;">
               <b>Zuletzt:</b> ${n.last}<br>
