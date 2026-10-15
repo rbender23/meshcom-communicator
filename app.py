@@ -109,7 +109,6 @@ def init_db():
             fw TEXT DEFAULT '-'
         )""")
 
-        # Migration für Firmware-Spalte in bestehenden Datenbanken
         try: c.execute("ALTER TABLE mheard ADD COLUMN fw TEXT DEFAULT '-'")
         except sqlite3.OperationalError: pass
         try: c.execute("ALTER TABLE direct_heard ADD COLUMN fw TEXT DEFAULT '-'")
@@ -155,7 +154,6 @@ def resolve_hardware_name(node_data: dict) -> str:
 
 
 def extract_firmware(node_data: dict) -> str:
-    """Extrahiert die Firmware-Version und formatiert sie sauber (z.B. 40 + a -> 4.40a)."""
     fw = node_data.get("firmware")
     sub = str(node_data.get("fw_sub", "")).strip()
     
@@ -495,7 +493,12 @@ def get_data():
                 "snr": snr, "rssi": rssi, "dist": calc_dist, "neighbours": final_nb, "fw": fw
             })
 
-        c.execute("SELECT callsign, path, last_seen, hw, snr, rssi, distance, lat, lon, alt, fw FROM mheard ORDER BY last_seen DESC LIMIT 100")
+        # NEU: Die Stationen auf der Karte werden nun passend zum Dropdown-Zeitfenster gefiltert
+        c.execute("""SELECT callsign, path, last_seen, hw, snr, rssi, distance, lat, lon, alt, fw 
+                     FROM mheard 
+                     WHERE last_seen >= datetime('now', 'localtime', ?)
+                     ORDER BY last_seen DESC LIMIT 100""", (f"-{hours} hours",))
+                     
         map_nodes = [{
             "call": r[0], "path": r[1] or "", "last": r[2], "hw": r[3],
             "snr": r[4], "rssi": r[5], "dist": r[6], "lat": r[7], "lon": r[8], "alt": r[9], "fw": r[10]
