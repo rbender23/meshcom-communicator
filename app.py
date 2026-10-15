@@ -18,7 +18,7 @@ ini_path = os.path.splitext(os.path.abspath(__file__))[0] + '.ini'
 config = configparser.ConfigParser()
 
 if not os.path.exists(ini_path):
-    print(f"[Warnung] Konfigurationsdatei '{ini_path}' nicht gefunden. Es werden Standardwerte ohne Pushover-Benachrichtigung verwendet.")
+    print(f"[Warnung] Konfigurationsdatei '{ini_path}' nicht gefunden. Es werden Standardwerte verwendet.")
     config.read_dict({'Network': {}, 'Radio': {}, 'Pushover': {}, 'Database': {}})
 else:
     try:
@@ -44,7 +44,6 @@ DB_FILE = os.path.expanduser(raw_db_path)
 
 # --- ENDE KONFIGURATION ---
 
-# Offizielle MeshCom Hardware-ID Zuordnung
 HW_ID_MAP = {
     1: "TLORA V2", 2: "TLORA V1", 3: "TLORA V2.1", 4: "TBEAM",
     5: "TBEAM V1.2", 6: "TBEAM 0.7", 7: "T-ECHO", 8: "T-DECK",
@@ -70,6 +69,7 @@ def init_db():
         os.makedirs(os.path.dirname(DB_FILE), exist_ok=True)
         conn = get_db_connection()
         c = conn.cursor()
+        
         c.execute("""CREATE TABLE IF NOT EXISTS messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp TEXT,
@@ -78,15 +78,11 @@ def init_db():
             text TEXT
         )""")
 
-        try:
-            c.execute("ALTER TABLE messages ADD COLUMN ack INTEGER DEFAULT 0")
-        except sqlite3.OperationalError:
-            pass
+        try: c.execute("ALTER TABLE messages ADD COLUMN ack INTEGER DEFAULT 0")
+        except sqlite3.OperationalError: pass
 
-        try:
-            c.execute("ALTER TABLE messages ADD COLUMN ack_id TEXT")
-        except sqlite3.OperationalError:
-            pass
+        try: c.execute("ALTER TABLE messages ADD COLUMN ack_id TEXT")
+        except sqlite3.OperationalError: pass
 
         c.execute("""CREATE TABLE IF NOT EXISTS mheard (
             callsign TEXT PRIMARY KEY,
@@ -98,8 +94,10 @@ def init_db():
             distance REAL,
             lat REAL,
             lon REAL,
-            alt REAL
+            alt REAL,
+            fw TEXT DEFAULT '-'
         )""")
+        
         c.execute("""CREATE TABLE IF NOT EXISTS direct_heard (
             callsign TEXT PRIMARY KEY,
             last_seen TEXT,
@@ -107,14 +105,23 @@ def init_db():
             snr REAL,
             rssi REAL,
             distance REAL,
-            neighbours INTEGER DEFAULT 0
+            neighbours INTEGER DEFAULT 0,
+            fw TEXT DEFAULT '-'
         )""")
+
+        # Migration für Firmware-Spalte in bestehenden Datenbanken
+        try: c.execute("ALTER TABLE mheard ADD COLUMN fw TEXT DEFAULT '-'")
+        except sqlite3.OperationalError: pass
+        try: c.execute("ALTER TABLE direct_heard ADD COLUMN fw TEXT DEFAULT '-'")
+        except sqlite3.OperationalError: pass
+
         c.execute("""CREATE TABLE IF NOT EXISTS links (
             node1 TEXT,
             node2 TEXT,
             last_seen TEXT,
             PRIMARY KEY (node1, node2)
         )""")
+        
         conn.commit()
         conn.close()
     except Exception as e:
@@ -145,6 +152,27 @@ def resolve_hardware_name(node_data: dict) -> str:
         except (ValueError, TypeError):
             pass
     return "-"
+
+
+def extract_firmware(node_data: dict) -> str:
+    """Extrahiert die Firmware-Version und formatiert sie sauber (z.B. 40 + a -> 4.40a)."""
+    fw = node_data.get("firmware")
+    sub = str(node_data.get("fw_sub", "")).strip()
+    
+    if fw is None or fw == "":
+        return "-"
+        
+    fw_str = str(fw).strip()
+    if "." in fw_str:
+        return f"{fw_str}{sub}"
+        
+    try:
+        fw_int = int(fw_str)
+        if fw_int == 0:
+            return f"0{sub}"
+        return f"4.{fw_int}{sub}"
+    except ValueError:
+        return f"{fw_str}{sub}"
 
 
 def send_pushover(title: str, msg: str) -> None:
@@ -232,14 +260,15 @@ def upsert_map_node(c, node_data: dict, fallback_call: str, now: str):
     path = ("," + ",".join(parts[1:])) if len(parts) > 1 else ""
 
     hw = resolve_hardware_name(node_data)
+    fw = extract_firmware(node_data)
     snr = float(node_data.get("snr") or 0.0)
     rssi = float(node_data.get("rssi") or 0.0)
     dist = float(node_data.get("dist") or node_data.get("distance") or -1.0)
     alt = float(node_data.get("alt") or 0.0)
     lat, lon = extract_coordinates(node_data)
 
-    c.execute("""INSERT INTO mheard (callsign, path, last_seen, hw, snr, rssi, distance, lat, lon, alt)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    c.execute("""INSERT INTO mheard (callsign, path, last_seen, hw, snr, rssi, distance, lat, lon, alt, fw)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                  ON CONFLICT(callsign) DO UPDATE SET
                  path=CASE WHEN excluded.path != '' THEN excluded.path ELSE mheard.path END,
                  last_seen=excluded.last_seen,
@@ -249,8 +278,9 @@ def upsert_map_node(c, node_data: dict, fallback_call: str, now: str):
                  distance=CASE WHEN excluded.distance != -1.0 THEN excluded.distance ELSE mheard.distance END,
                  lat=CASE WHEN excluded.lat IS NOT NULL THEN excluded.lat ELSE mheard.lat END,
                  lon=CASE WHEN excluded.lon IS NOT NULL THEN excluded.lon ELSE mheard.lon END,
-                 alt=CASE WHEN excluded.alt != 0.0 THEN excluded.alt ELSE mheard.alt END""",
-              (origin_call, path, now, hw, snr, rssi, dist, lat, lon, alt))
+                 alt=CASE WHEN excluded.alt != 0.0 THEN excluded.alt ELSE mheard.alt END,
+                 fw=CASE WHEN excluded.fw != '-' THEN excluded.fw ELSE mheard.fw END""",
+              (origin_call, path, now, hw, snr, rssi, dist, lat, lon, alt, fw))
 
 
 def upsert_direct_heard(c, node_data: dict, fallback_call: str, now: str):
@@ -283,6 +313,8 @@ def upsert_direct_heard(c, node_data: dict, fallback_call: str, now: str):
         return
 
     hw = resolve_hardware_name(node_data) if is_single_hop else "-"
+    fw = extract_firmware(node_data) if is_single_hop else "-"
+    
     try:
         dist = float(node_data.get("dist") or node_data.get("distance") or -1.0) if is_single_hop else -1.0
     except (ValueError, TypeError):
@@ -293,16 +325,17 @@ def upsert_direct_heard(c, node_data: dict, fallback_call: str, now: str):
     except (ValueError, TypeError):
         neighbours = 0
 
-    c.execute("""INSERT INTO direct_heard (callsign, last_seen, hw, snr, rssi, distance, neighbours)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)
+    c.execute("""INSERT INTO direct_heard (callsign, last_seen, hw, snr, rssi, distance, neighbours, fw)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                  ON CONFLICT(callsign) DO UPDATE SET
                  last_seen=excluded.last_seen,
                  hw=CASE WHEN excluded.hw != '-' THEN excluded.hw ELSE direct_heard.hw END,
                  snr=excluded.snr,
                  rssi=excluded.rssi,
                  distance=CASE WHEN excluded.distance != -1.0 THEN excluded.distance ELSE direct_heard.distance END,
-                 neighbours=CASE WHEN excluded.neighbours != 0 THEN excluded.neighbours ELSE direct_heard.neighbours END""",
-              (direct_call, now, hw, snr, rssi, dist, neighbours))
+                 neighbours=CASE WHEN excluded.neighbours != 0 THEN excluded.neighbours ELSE direct_heard.neighbours END,
+                 fw=CASE WHEN excluded.fw != '-' THEN excluded.fw ELSE direct_heard.fw END""",
+              (direct_call, now, hw, snr, rssi, dist, neighbours, fw))
 
 
 def udp_listener():
@@ -437,14 +470,14 @@ def get_data():
         loc_row = c.fetchone()
         my_lat, my_lon = (loc_row[0], loc_row[1]) if loc_row and loc_row[0] and loc_row[1] else (0.0, 0.0)
 
-        c.execute("""SELECT d.callsign, d.last_seen, d.hw, d.snr, d.rssi, d.neighbours, m.lat, m.lon
+        c.execute("""SELECT d.callsign, d.last_seen, d.hw, d.snr, d.rssi, d.neighbours, m.lat, m.lon, d.fw
                      FROM direct_heard d
                      LEFT JOIN mheard m ON d.callsign = m.callsign
                      ORDER BY d.last_seen DESC LIMIT 30""")
         
         direct_nodes = []
         for r in c.fetchall():
-            call, last, hw, snr, rssi, nb, lat, lon = r
+            call, last, hw, snr, rssi, nb, lat, lon, fw = r
             
             calc_dist = -1.0
             if my_lat != 0.0 and my_lon != 0.0 and lat and lon and lat != 0.0 and lon != 0.0:
@@ -459,13 +492,13 @@ def get_data():
 
             direct_nodes.append({
                 "call": call, "last": last, "hw": hw,
-                "snr": snr, "rssi": rssi, "dist": calc_dist, "neighbours": final_nb
+                "snr": snr, "rssi": rssi, "dist": calc_dist, "neighbours": final_nb, "fw": fw
             })
 
-        c.execute("SELECT callsign, path, last_seen, hw, snr, rssi, distance, lat, lon, alt FROM mheard ORDER BY last_seen DESC LIMIT 100")
+        c.execute("SELECT callsign, path, last_seen, hw, snr, rssi, distance, lat, lon, alt, fw FROM mheard ORDER BY last_seen DESC LIMIT 100")
         map_nodes = [{
             "call": r[0], "path": r[1] or "", "last": r[2], "hw": r[3],
-            "snr": r[4], "rssi": r[5], "dist": r[6], "lat": r[7], "lon": r[8], "alt": r[9]
+            "snr": r[4], "rssi": r[5], "dist": r[6], "lat": r[7], "lon": r[8], "alt": r[9], "fw": r[10]
         } for r in c.fetchall()]
 
         c.execute("SELECT node1, node2, last_seen FROM links WHERE last_seen >= datetime('now', 'localtime', ?)", (f"-{hours} hours",))

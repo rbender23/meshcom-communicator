@@ -31,7 +31,7 @@
     .udp-tx { color: #ffca28; }
     .udp-rx { color: #81c784; }
 
-    /* Heard Nodes Cards */
+    /* Heard Nodes Cards (kompakter) */
     .heard-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
     .heard-card { background: #2c3034; border-radius: 6px; padding: 8px 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.35); }
     .heard-call { font-size: 1em; font-weight: bold; color: #64b5f6; margin-bottom: 4px; cursor: pointer; display: inline-block; }
@@ -45,7 +45,6 @@
     .clickable-call { cursor: pointer; color: #64b5f6; text-decoration: underline dotted; font-weight: bold; }
     .clickable-call:hover { color: #bbdefb; }
     
-    /* NEU: Mention-Button Styles */
     .mention-btn { color: #ffca28; cursor: pointer; font-weight: bold; font-size: 0.85em; background: #444; padding: 1px 5px; border-radius: 4px; margin-left: 4px; display: inline-block; }
     .mention-btn:hover { background: #ffca28; color: #111; }
 
@@ -238,7 +237,6 @@
       document.getElementById('text').focus();
     }
 
-    // NEU: Funktion um ein Rufzeichen in den Text einzufügen
     function mentionCall(call) {
       const cleanCall = call.split(',')[0].trim();
       const input = document.getElementById('text');
@@ -332,7 +330,8 @@
               <div>SNR: ${snrVal} dB</div>
               <div>Hw: ${n.hw || '-'}</div>
               <div>Dist: ${distVal} km</div>
-              <div style="grid-column: span 2;">Neighbours: ${nbVal}</div>
+              <div>Neighbours: ${nbVal}</div>
+              <div>FW: ${n.fw || '-'}</div>
             </div>
           </div>
         `;
@@ -375,7 +374,7 @@
             <div style="font-size: 0.85em; margin-top: 4px; line-height: 1.4;">
               <b>Zuletzt:</b> ${n.last}<br>
               <b>Signal:</b> ${n.snr} dB / ${n.rssi} dBm<br>
-              <b>Hardware:</b> ${n.hw}
+              <b>Hardware:</b> ${n.hw} (FW: ${n.fw || '-'})
             </div>
           `;
 
