@@ -511,7 +511,6 @@ def save_config():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
-    # Live-Variablen sofort aktualisieren (ohne Neustart nutzbar)
     NODE_IP = str(data.get('NODE_IP', NODE_IP))
     MY_CALL = str(data.get('MY_CALL', MY_CALL))
     LOCAL_NODE_CALL = str(data.get('LOCAL_NODE_CALL', LOCAL_NODE_CALL))
@@ -572,10 +571,15 @@ def get_data():
                 "snr": snr, "rssi": rssi, "dist": calc_dist, "neighbours": final_nb, "fw": fw
             })
 
-        c.execute("""SELECT callsign, path, last_seen, hw, snr, rssi, distance, lat, lon, alt, fw 
-                     FROM mheard 
-                     WHERE last_seen >= datetime('now', 'localtime', ?)
-                     ORDER BY last_seen DESC LIMIT 100""", (f"-{hours} hours",))
+        # Optimierte Karte: Kombiniert Zeitstempel aus 'mheard' (Absender) und 'direct_heard' (Relais)
+        c.execute("""SELECT m.callsign, m.path, 
+                            MAX(m.last_seen, COALESCE(d.last_seen, '')) as recent_time,
+                            m.hw, m.snr, m.rssi, m.distance, m.lat, m.lon, m.alt, m.fw 
+                     FROM mheard m
+                     LEFT JOIN direct_heard d ON m.callsign = d.callsign
+                     WHERE m.last_seen >= datetime('now', 'localtime', ?)
+                        OR d.last_seen >= datetime('now', 'localtime', ?)
+                     ORDER BY recent_time DESC LIMIT 100""", (f"-{hours} hours", f"-{hours} hours"))
                      
         map_nodes = [{
             "call": r[0], "path": r[1] or "", "last": r[2], "hw": r[3],
@@ -651,3 +655,4 @@ if __name__ == "__main__":
     init_db()
     threading.Thread(target=udp_listener, daemon=True).start()
     app.run(host=UDP_BIND_IP, port=WEB_PORT, debug=False)
+
