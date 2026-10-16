@@ -9,7 +9,7 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 15px; background: #121212; color: #e0e0e0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 15px; background: #121212; color: #e0e0e0; transition: background 0.3s, color 0.3s; }
     h2, h3 { color: #64b5f6; margin-bottom: 8px; }
     .header-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px; }
     
@@ -31,7 +31,7 @@
     .udp-tx { color: #ffca28; }
     .udp-rx { color: #81c784; }
 
-    /* Heard Nodes Cards (kompakter) */
+    /* Heard Nodes Cards */
     .heard-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
     .heard-card { background: #2c3034; border-radius: 6px; padding: 8px 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.35); }
     .heard-call { font-size: 1em; font-weight: bold; color: #64b5f6; margin-bottom: 4px; cursor: pointer; display: inline-block; }
@@ -45,8 +45,12 @@
     .clickable-call { cursor: pointer; color: #64b5f6; text-decoration: underline dotted; font-weight: bold; }
     .clickable-call:hover { color: #bbdefb; }
     
-    .mention-btn { color: #ffca28; cursor: pointer; font-weight: bold; font-size: 0.85em; background: #444; padding: 1px 5px; border-radius: 4px; margin-left: 4px; display: inline-block; }
-    .mention-btn:hover { background: #ffca28; color: #111; }
+    .popup-call { font-size: 1.1em; font-weight: bold; color: #64b5f6; cursor: pointer; display: inline-block; }
+    .popup-call:hover { color: #bbdefb; text-decoration: underline; }
+
+    /* @-Mention Button */
+    .mention-btn { color: #64b5f6; cursor: pointer; font-weight: bold; font-size: 0.85em; background: #333; padding: 1px 5px; border-radius: 4px; margin-left: 4px; display: inline-block; border: 1px solid #444; }
+    .mention-btn:hover { background: #64b5f6; color: #111; }
 
     .path-text { color: #777; font-size: 0.85em; word-break: break-all; margin-left: 4px; }
     .dm { color: #81c784; font-weight: bold; }
@@ -61,37 +65,59 @@
     .leaflet-popup-tip { background: #222; }
     .map-controls { display: flex; align-items: center; gap: 15px; }
 
-    /* Permanente Marker-Labels */
     .marker-label {
-      background: rgba(30, 30, 30, 0.85);
-      border: 1px solid #0288d1;
-      color: #e0e0e0;
-      font-weight: bold;
-      border-radius: 4px;
-      padding: 2px 6px;
-      font-size: 0.85em;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.5);
+      background: rgba(30, 30, 30, 0.85); border: 1px solid #0288d1; color: #e0e0e0;
+      font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 0.85em; box-shadow: 0 1px 3px rgba(0,0,0,0.5);
     }
     .leaflet-tooltip-left.marker-label::before { border-left-color: #0288d1; }
     .leaflet-tooltip-right.marker-label::before { border-right-color: #0288d1; }
 
-    /* Hover-Tooltip für die Linien */
-    .line-tooltip {
-      background: rgba(20, 20, 20, 0.9);
-      color: #fff;
-      border: 1px solid #333;
-      text-align: center;
-      font-size: 0.95em;
-      border-radius: 4px;
-      padding: 6px 10px;
-    }
-    .leaflet-tooltip-top.line-tooltip::before,
-    .leaflet-tooltip-bottom.line-tooltip::before,
-    .leaflet-tooltip-left.line-tooltip::before,
-    .leaflet-tooltip-right.line-tooltip::before { display: none; }
+    .line-tooltip { background: rgba(20, 20, 20, 0.9); color: #fff; border: 1px solid #333; text-align: center; font-size: 0.95em; border-radius: 4px; padding: 6px 10px; }
+    .leaflet-tooltip-top.line-tooltip::before, .leaflet-tooltip-bottom.line-tooltip::before,
+    .leaflet-tooltip-left.line-tooltip::before, .leaflet-tooltip-right.line-tooltip::before { display: none; }
+
+    /* =========================================
+       LIGHT MODE STYLES 
+       ========================================= */
+    body.light-mode { background: #f0f2f5; color: #222; }
+    body.light-mode .box { background: #ffffff; box-shadow: 0 2px 6px rgba(0,0,0,0.08); }
+    body.light-mode h2, body.light-mode h3 { color: #1565c0; }
+    body.light-mode input, body.light-mode select { background: #ffffff; color: #000; border: 1px solid #ccc; }
+    body.light-mode .tab-btn { background: #e0e0e0; color: #333; border: 1px solid #ccc; }
+    body.light-mode .tab-btn.active { background: #0288d1; color: #fff; border-color: #0288d1; }
+    
+    body.light-mode .udp-console { background: #f8f9fa; border-color: #ddd; color: #333; }
+    body.light-mode .udp-line { border-bottom: 1px dashed #ddd; }
+    body.light-mode .udp-tx { color: #d84315; } /* Dunkleres Orange */
+    body.light-mode .udp-rx { color: #2e7d32; } /* Dunkleres Grün */
+    
+    body.light-mode .heard-card { background: #ffffff; box-shadow: 0 1px 4px rgba(0,0,0,0.12); border: 1px solid #e0e0e0; }
+    body.light-mode .heard-grid { color: #555; }
+    
+    body.light-mode th { color: #1565c0; }
+    body.light-mode th, body.light-mode td { border-bottom: 1px solid #eee; }
+    
+    body.light-mode .clickable-call, body.light-mode .heard-call, body.light-mode .popup-call { color: #1565c0; }
+    body.light-mode .clickable-call:hover, body.light-mode .heard-call:hover, body.light-mode .popup-call:hover { color: #0d47a1; }
+    
+    body.light-mode .mention-btn { color: #1565c0; background: #f0f0f0; border: 1px solid #ccc; }
+    body.light-mode .mention-btn:hover { background: #1565c0; color: #fff; }
+    
+    body.light-mode .path-text, body.light-mode .time-col { color: #777; }
+    
+    body.light-mode .leaflet-popup-content-wrapper, body.light-mode .leaflet-popup-tip { background: #fff; color: #222; border-color: #ccc; }
+    body.light-mode .marker-label { background: rgba(255, 255, 255, 0.9); color: #222; border-color: #0288d1; }
+    body.light-mode .line-tooltip { background: rgba(255, 255, 255, 0.95); color: #222; border-color: #999; }
   </style>
 </head>
 <body>
+
+  <!-- Blockiert Flackern beim Laden, indem der Theme-Status sofort gesetzt wird -->
+  <script>
+    if (localStorage.getItem('theme') === 'light') {
+      document.body.classList.add('light-mode');
+    }
+  </script>
 
   <div class="header-bar">
     <h2 style="margin: 0;">📡 MeshCom Communicator ({{ my_call }})</h2>
@@ -99,6 +125,9 @@
       <button class="tab-btn active" id="btnDash" onclick="switchView('dashboard')">📋 Dashboard</button>
       <button class="tab-btn" id="btnMap" onclick="switchView('map')">🗺️ Mesh-Karte</button>
       <button class="tab-btn" id="btnMon" onclick="toggleMonitorPanel()">🔍 UDP-Monitor</button>
+      
+      <!-- NEU: Dark/Light Mode Umschalter -->
+      <button class="tab-btn" onclick="toggleTheme()" title="Theme umschalten" style="margin-left: 15px; font-size: 1em;">🌓</button>
     </div>
   </div>
 
@@ -181,6 +210,15 @@
 
     const existingMarkers = {};
     const existingLines = {};
+
+    function toggleTheme() {
+      document.body.classList.toggle('light-mode');
+      if (document.body.classList.contains('light-mode')) {
+        localStorage.setItem('theme', 'light');
+      } else {
+        localStorage.setItem('theme', 'dark');
+      }
+    }
 
     function toggleMonitorPanel() {
       const panel = document.getElementById('monPanel');
@@ -366,7 +404,7 @@
           const isMe = n.call.startsWith(MY_CALL);
           const popupHtml = `
             <div>
-              <div style="font-size: 1.1em; font-weight: bold; color: #64b5f6; cursor:pointer; display:inline-block;" onclick="selectCall('${n.call}')">
+              <div class="popup-call" title="Als DM setzen" onclick="selectCall('${n.call}')">
                 📻 ${n.call}
               </div>
               <span class="mention-btn" title="Im Text erwähnen (@)" onclick="mentionCall('${n.call}')">@</span>
