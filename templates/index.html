@@ -33,10 +33,15 @@
 
     /* Heard Nodes Cards */
     .heard-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
-    .heard-card { background: #2c3034; border-radius: 6px; padding: 8px 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.35); }
+    .heard-card { background: #2c3034; border-radius: 6px; padding: 8px 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.35); transition: color 0.3s; }
     .heard-call { font-size: 1em; font-weight: bold; color: #64b5f6; margin-bottom: 4px; cursor: pointer; display: inline-block; }
     .heard-call:hover { color: #bbdefb; text-decoration: underline; }
     .heard-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px; font-size: 0.8em; color: #f0f0f0; line-height: 1.2; }
+
+    /* Veraltete Nodes (> 3 Stunden) */
+    .stale-node .heard-call { color: #455a64; }
+    .stale-node .heard-grid { color: #546e7a; }
+    .stale-node .mention-btn { background: #263238; color: #455a64; border-color: #37474f; }
 
     table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.9em; }
     th, td { text-align: left; padding: 7px 6px; border-bottom: 1px solid #333; }
@@ -65,16 +70,34 @@
     .leaflet-popup-tip { background: #222; }
     .map-controls { display: flex; align-items: center; gap: 15px; }
 
+    /* Permanente Marker-Labels */
     .marker-label {
-      background: rgba(30, 30, 30, 0.85); border: 1px solid #0288d1; color: #e0e0e0;
-      font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 0.85em; box-shadow: 0 1px 3px rgba(0,0,0,0.5);
+      background: rgba(30, 30, 30, 0.85);
+      border: 1px solid #0288d1;
+      color: #e0e0e0;
+      font-weight: bold;
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-size: 0.85em;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.5);
     }
     .leaflet-tooltip-left.marker-label::before { border-left-color: #0288d1; }
     .leaflet-tooltip-right.marker-label::before { border-right-color: #0288d1; }
 
-    .line-tooltip { background: rgba(20, 20, 20, 0.9); color: #fff; border: 1px solid #333; text-align: center; font-size: 0.95em; border-radius: 4px; padding: 6px 10px; }
-    .leaflet-tooltip-top.line-tooltip::before, .leaflet-tooltip-bottom.line-tooltip::before,
-    .leaflet-tooltip-left.line-tooltip::before, .leaflet-tooltip-right.line-tooltip::before { display: none; }
+    /* Hover-Tooltip für die Linien */
+    .line-tooltip {
+      background: rgba(20, 20, 20, 0.9);
+      color: #fff;
+      border: 1px solid #333;
+      text-align: center;
+      font-size: 0.95em;
+      border-radius: 4px;
+      padding: 6px 10px;
+    }
+    .leaflet-tooltip-top.line-tooltip::before,
+    .leaflet-tooltip-bottom.line-tooltip::before,
+    .leaflet-tooltip-left.line-tooltip::before,
+    .leaflet-tooltip-right.line-tooltip::before { display: none; }
 
     /* =========================================
        LIGHT MODE STYLES 
@@ -88,12 +111,17 @@
     
     body.light-mode .udp-console { background: #f8f9fa; border-color: #ddd; color: #333; }
     body.light-mode .udp-line { border-bottom: 1px dashed #ddd; }
-    body.light-mode .udp-tx { color: #d84315; } /* Dunkleres Orange */
-    body.light-mode .udp-rx { color: #2e7d32; } /* Dunkleres Grün */
+    body.light-mode .udp-tx { color: #d84315; }
+    body.light-mode .udp-rx { color: #2e7d32; }
     
     body.light-mode .heard-card { background: #ffffff; box-shadow: 0 1px 4px rgba(0,0,0,0.12); border: 1px solid #e0e0e0; }
     body.light-mode .heard-grid { color: #555; }
     
+    /* Veraltete Nodes Light Mode */
+    body.light-mode .stale-node .heard-call { color: #90a4ae; }
+    body.light-mode .stale-node .heard-grid { color: #b0bec5; }
+    body.light-mode .stale-node .mention-btn { background: #eceff1; color: #90a4ae; border-color: #cfd8dc; }
+
     body.light-mode th { color: #1565c0; }
     body.light-mode th, body.light-mode td { border-bottom: 1px solid #eee; }
     
@@ -112,7 +140,7 @@
 </head>
 <body>
 
-  <!-- Blockiert Flackern beim Laden, indem der Theme-Status sofort gesetzt wird -->
+  <!-- Blockiert Flackern beim Laden -->
   <script>
     if (localStorage.getItem('theme') === 'light') {
       document.body.classList.add('light-mode');
@@ -126,7 +154,6 @@
       <button class="tab-btn" id="btnMap" onclick="switchView('map')">🗺️ Mesh-Karte</button>
       <button class="tab-btn" id="btnMon" onclick="toggleMonitorPanel()">🔍 UDP-Monitor</button>
       
-      <!-- NEU: Dark/Light Mode Umschalter -->
       <button class="tab-btn" onclick="toggleTheme()" title="Theme umschalten" style="margin-left: 15px; font-size: 1em;">🌓</button>
     </div>
   </div>
@@ -345,6 +372,8 @@
         return;
       }
 
+      const now = new Date();
+
       container.innerHTML = directNodes.map(n => {
         const parts = (n.last || '').split(' ');
         const dateStr = parts[0] || '-';
@@ -355,8 +384,18 @@
         const distVal = (n.dist !== undefined && n.dist !== null && Number(n.dist) >= 0) ? Number(n.dist).toFixed(1) : '-';
         const nbVal = n.neighbours || 0;
 
+        // Zeitdifferenz in Millisekunden prüfen (3 Stunden = 10800000 ms)
+        let staleClass = '';
+        if (n.last) {
+            // "2026-10-15 21:50:00" in "2026-10-15T21:50:00" wandeln, damit Date() es sauber liest
+            const lastDate = new Date(n.last.replace(' ', 'T'));
+            if ((now - lastDate) > 10800000) {
+                staleClass = 'stale-node';
+            }
+        }
+
         return `
-          <div class="heard-card">
+          <div class="heard-card ${staleClass}">
             <div>
               <div class="heard-call" title="Als DM setzen" onclick="selectCall('${n.call}')">${n.call}</div>
               <span class="mention-btn" title="Im Text erwähnen (@)" onclick="mentionCall('${n.call}')">@</span>
