@@ -36,6 +36,9 @@ MY_CALL = config.get('Radio', 'MY_CALL', fallback="DO5RBB")
 LOCAL_NODE_CALL = config.get('Radio', 'LOCAL_NODE_CALL', fallback="DO5RBB-12")
 TARGET_TG = config.get('Radio', 'TARGET_TG', fallback="26257")
 
+raw_ui_tgs = config.get('Radio', 'UI_TGS', fallback=TARGET_TG)
+UI_TGS = [t.strip() for t in raw_ui_tgs.split(',') if t.strip()]
+
 PUSHOVER_TOKEN = config.get('Pushover', 'TOKEN', fallback="")
 PUSHOVER_USER = config.get('Pushover', 'USER', fallback="")
 
@@ -411,9 +414,9 @@ def udp_listener():
                             elif MY_CALL.upper() in clean_text.upper():
                                 should_alert = True
                                 alert_title = f"MeshCom [Erwähnung] von {src} (an {dst})"
-                            elif dst == TARGET_TG:
+                            elif dst in UI_TGS:
                                 should_alert = True
-                                alert_title = f"MeshCom [TG {TARGET_TG}] von {src}"
+                                alert_title = f"MeshCom [TG {dst}] von {src}"
 
                             if should_alert:
                                 send_pushover(alert_title, clean_text)
@@ -444,9 +447,85 @@ def udp_listener():
 
 @app.route("/")
 def index():
-    resp = make_response(render_template("index.html", my_call=MY_CALL, default_tg=TARGET_TG))
+    resp = make_response(render_template("index.html", my_call=MY_CALL, default_tg=TARGET_TG, ui_tgs=UI_TGS))
     resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     return resp
+
+
+@app.route("/api/config", methods=["GET"])
+def get_config():
+    return jsonify({
+        "Network": {
+            "UDP_BIND_IP": UDP_BIND_IP,
+            "UDP_PORT": UDP_PORT,
+            "WEB_PORT": WEB_PORT,
+            "NODE_IP": NODE_IP
+        },
+        "Radio": {
+            "MY_CALL": MY_CALL,
+            "LOCAL_NODE_CALL": LOCAL_NODE_CALL,
+            "TARGET_TG": TARGET_TG,
+            "UI_TGS": ", ".join(UI_TGS)
+        },
+        "Pushover": {
+            "TOKEN": PUSHOVER_TOKEN,
+            "USER": PUSHOVER_USER
+        },
+        "Database": {
+            "DB_FILE": raw_db_path
+        }
+    })
+
+@app.route("/api/config", methods=["POST"])
+def save_config():
+    global UDP_BIND_IP, UDP_PORT, WEB_PORT, NODE_IP
+    global MY_CALL, LOCAL_NODE_CALL, TARGET_TG, UI_TGS
+    global PUSHOVER_TOKEN, PUSHOVER_USER
+    global raw_db_path, DB_FILE
+
+    data = request.json or {}
+    
+    if not config.has_section('Network'): config.add_section('Network')
+    if not config.has_section('Radio'): config.add_section('Radio')
+    if not config.has_section('Pushover'): config.add_section('Pushover')
+    if not config.has_section('Database'): config.add_section('Database')
+
+    config.set('Network', 'NODE_IP', str(data.get('NODE_IP', NODE_IP)))
+    config.set('Network', 'UDP_BIND_IP', str(data.get('UDP_BIND_IP', UDP_BIND_IP)))
+    config.set('Network', 'UDP_PORT', str(data.get('UDP_PORT', UDP_PORT)))
+    config.set('Network', 'WEB_PORT', str(data.get('WEB_PORT', WEB_PORT)))
+
+    config.set('Radio', 'MY_CALL', str(data.get('MY_CALL', MY_CALL)))
+    config.set('Radio', 'LOCAL_NODE_CALL', str(data.get('LOCAL_NODE_CALL', LOCAL_NODE_CALL)))
+    config.set('Radio', 'TARGET_TG', str(data.get('TARGET_TG', TARGET_TG)))
+    config.set('Radio', 'UI_TGS', str(data.get('UI_TGS', ", ".join(UI_TGS))))
+
+    config.set('Pushover', 'TOKEN', str(data.get('PUSHOVER_TOKEN', PUSHOVER_TOKEN)))
+    config.set('Pushover', 'USER', str(data.get('PUSHOVER_USER', PUSHOVER_USER)))
+
+    config.set('Database', 'DB_FILE', str(data.get('DB_FILE', raw_db_path)))
+
+    try:
+        with open(ini_path, 'w') as configfile:
+            config.write(configfile)
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+    # Live-Variablen sofort aktualisieren (ohne Neustart nutzbar)
+    NODE_IP = str(data.get('NODE_IP', NODE_IP))
+    MY_CALL = str(data.get('MY_CALL', MY_CALL))
+    LOCAL_NODE_CALL = str(data.get('LOCAL_NODE_CALL', LOCAL_NODE_CALL))
+    TARGET_TG = str(data.get('TARGET_TG', TARGET_TG))
+    
+    raw_ui = str(data.get('UI_TGS', ""))
+    UI_TGS = [t.strip() for t in raw_ui.split(',') if t.strip()]
+    if not UI_TGS:
+        UI_TGS = [TARGET_TG]
+
+    PUSHOVER_TOKEN = str(data.get('PUSHOVER_TOKEN', PUSHOVER_TOKEN))
+    PUSHOVER_USER = str(data.get('PUSHOVER_USER', PUSHOVER_USER))
+
+    return jsonify({"status": "ok"})
 
 
 @app.route("/api/data")
@@ -493,7 +572,6 @@ def get_data():
                 "snr": snr, "rssi": rssi, "dist": calc_dist, "neighbours": final_nb, "fw": fw
             })
 
-        # NEU: Die Stationen auf der Karte werden nun passend zum Dropdown-Zeitfenster gefiltert
         c.execute("""SELECT callsign, path, last_seen, hw, snr, rssi, distance, lat, lon, alt, fw 
                      FROM mheard 
                      WHERE last_seen >= datetime('now', 'localtime', ?)

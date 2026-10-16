@@ -31,6 +31,11 @@
     .udp-tx { color: #ffca28; }
     .udp-rx { color: #81c784; }
 
+    /* Settings View */
+    .settings-grid { display: grid; grid-template-columns: 200px 1fr; gap: 10px; max-width: 600px; align-items: center; }
+    .settings-grid h4 { grid-column: span 2; margin-top: 15px; margin-bottom: 5px; color: #ffb74d; border-bottom: 1px solid #444; padding-bottom: 3px; font-size: 1.1em; }
+    .settings-grid input { width: 100%; box-sizing: border-box; }
+
     /* Heard Nodes Cards */
     .heard-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
     .heard-card { background: #2c3034; border-radius: 6px; padding: 8px 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.35); transition: color 0.3s; }
@@ -114,6 +119,8 @@
     body.light-mode .udp-tx { color: #d84315; }
     body.light-mode .udp-rx { color: #2e7d32; }
     
+    body.light-mode .settings-grid h4 { border-color: #ddd; color: #d84315; }
+
     body.light-mode .heard-card { background: #ffffff; box-shadow: 0 1px 4px rgba(0,0,0,0.12); border: 1px solid #e0e0e0; }
     body.light-mode .heard-grid { color: #555; }
     
@@ -140,7 +147,6 @@
 </head>
 <body>
 
-  <!-- Blockiert Flackern beim Laden -->
   <script>
     if (localStorage.getItem('theme') === 'light') {
       document.body.classList.add('light-mode');
@@ -153,6 +159,8 @@
       <button class="tab-btn active" id="btnDash" onclick="switchView('dashboard')">📋 Dashboard</button>
       <button class="tab-btn" id="btnMap" onclick="switchView('map')">🗺️ Mesh-Karte</button>
       <button class="tab-btn" id="btnMon" onclick="toggleMonitorPanel()">🔍 UDP-Monitor</button>
+      <!-- NEUER TAB -->
+      <button class="tab-btn" id="btnSettings" onclick="switchView('settings')">⚙️ Einstellungen</button>
       
       <button class="tab-btn" onclick="toggleTheme()" title="Theme umschalten" style="margin-left: 15px; font-size: 1em;">🌓</button>
     </div>
@@ -180,7 +188,11 @@
         <h3 style="margin: 0;">💬 Nachrichten</h3>
         <div class="tabs">
           <button class="tab-btn active" onclick="setFilter('ALL', this)">Alle</button>
-          <button class="tab-btn" onclick="setFilter('26257', this)">TG 26257</button>
+          
+          {% for tg in ui_tgs %}
+          <button class="tab-btn" onclick="setFilter('{{ tg }}', this)">TG {{ tg }}</button>
+          {% endfor %}
+          
           <button class="tab-btn" onclick="setFilter('*', this)">Broadcast (*)</button>
           <button class="tab-btn" onclick="setFilter('DM', this)">Direkt (DM)</button>
         </div>
@@ -225,6 +237,39 @@
     <div id="map"></div>
   </div>
 
+  <!-- EINSTELLUNGEN ANSICHT -->
+  <div id="settingsView" class="box" style="display: none;">
+    <h3 style="margin: 0 0 10px 0;">⚙️ Konfiguration (app.ini)</h3>
+    <p style="font-size: 0.85em; color: #aaa; margin-top: 0;">Hinweis: Änderungen an Ports oder am Datenbankpfad werden erst nach einem Neustart des Hintergrunddienstes aktiv.</p>
+    
+    <div class="settings-grid">
+        <!-- Network -->
+        <h4>Netzwerk</h4><div></div>
+        <label>Node IP (TX Ziel):</label> <input type="text" id="cfg_NODE_IP">
+        <label>UDP Bind IP:</label> <input type="text" id="cfg_UDP_BIND_IP">
+        <label>UDP Port:</label> <input type="text" id="cfg_UDP_PORT">
+        <label>Web Port:</label> <input type="text" id="cfg_WEB_PORT">
+        
+        <!-- Radio -->
+        <h4>Funk</h4><div></div>
+        <label>Mein Rufzeichen:</label> <input type="text" id="cfg_MY_CALL">
+        <label>Gateway Node Call:</label> <input type="text" id="cfg_LOCAL_NODE_CALL">
+        <label>Standard TG (Ziel):</label> <input type="text" id="cfg_TARGET_TG">
+        <label>UI Filter TGs (kommagetrennt):</label> <input type="text" id="cfg_UI_TGS" placeholder="z.B. 26257, 262, 2625">
+
+        <!-- Pushover -->
+        <h4>Pushover Alarme</h4><div></div>
+        <label>App Token:</label> <input type="text" id="cfg_PUSHOVER_TOKEN" placeholder="ai5geg5yvna49782q7i4dekwbrkxqy">
+        <label>User Key:</label> <input type="text" id="cfg_PUSHOVER_USER" placeholder="uu1314uwj9uc48p9cg7ajhuwx69bk6">
+        
+        <!-- System -->
+        <h4>System</h4><div></div>
+        <label>Datenbank-Pfad:</label> <input type="text" id="cfg_DB_FILE">
+    </div>
+    <button style="margin-top: 20px; padding: 10px 20px;" onclick="saveConfig()">💾 Speichern & Anwenden</button>
+    <span id="cfgStatus" style="margin-left: 15px; color: #81c784; font-weight: bold; display: none;">Erfolgreich gespeichert!</span>
+  </div>
+
   <!-- Leaflet JS -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
@@ -260,17 +305,88 @@
     }
 
     function switchView(view) {
+      document.getElementById('dashView').style.display = 'none';
+      document.getElementById('mapView').style.display = 'none';
+      document.getElementById('settingsView').style.display = 'none';
+      
+      document.getElementById('btnDash').classList.remove('active');
+      document.getElementById('btnMap').classList.remove('active');
+      document.getElementById('btnSettings').classList.remove('active');
+
       if (view === 'map') {
-        document.getElementById('dashView').style.display = 'none';
         document.getElementById('mapView').style.display = 'block';
         document.getElementById('btnMap').classList.add('active');
-        document.getElementById('btnDash').classList.remove('active');
         initMap();
+      } else if (view === 'settings') {
+        document.getElementById('settingsView').style.display = 'block';
+        document.getElementById('btnSettings').classList.add('active');
+        loadConfig();
       } else {
         document.getElementById('dashView').style.display = 'grid';
-        document.getElementById('mapView').style.display = 'none';
         document.getElementById('btnDash').classList.add('active');
-        document.getElementById('btnMap').classList.remove('active');
+      }
+    }
+
+    // Config Funktionen
+    async function loadConfig() {
+      try {
+        const res = await fetch('/api/config');
+        const data = await res.json();
+        
+        document.getElementById('cfg_NODE_IP').value = data.Network.NODE_IP;
+        document.getElementById('cfg_UDP_BIND_IP').value = data.Network.UDP_BIND_IP;
+        document.getElementById('cfg_UDP_PORT').value = data.Network.UDP_PORT;
+        document.getElementById('cfg_WEB_PORT').value = data.Network.WEB_PORT;
+        
+        document.getElementById('cfg_MY_CALL').value = data.Radio.MY_CALL;
+        document.getElementById('cfg_LOCAL_NODE_CALL').value = data.Radio.LOCAL_NODE_CALL;
+        document.getElementById('cfg_TARGET_TG').value = data.Radio.TARGET_TG;
+        document.getElementById('cfg_UI_TGS').value = data.Radio.UI_TGS;
+        
+        document.getElementById('cfg_PUSHOVER_TOKEN').value = data.Pushover.TOKEN;
+        document.getElementById('cfg_PUSHOVER_USER').value = data.Pushover.USER;
+        
+        document.getElementById('cfg_DB_FILE').value = data.Database.DB_FILE;
+      } catch (e) {
+        console.error("Fehler beim Laden der Konfiguration:", e);
+      }
+    }
+
+    async function saveConfig() {
+      const payload = {
+        NODE_IP: document.getElementById('cfg_NODE_IP').value,
+        UDP_BIND_IP: document.getElementById('cfg_UDP_BIND_IP').value,
+        UDP_PORT: document.getElementById('cfg_UDP_PORT').value,
+        WEB_PORT: document.getElementById('cfg_WEB_PORT').value,
+        
+        MY_CALL: document.getElementById('cfg_MY_CALL').value,
+        LOCAL_NODE_CALL: document.getElementById('cfg_LOCAL_NODE_CALL').value,
+        TARGET_TG: document.getElementById('cfg_TARGET_TG').value,
+        UI_TGS: document.getElementById('cfg_UI_TGS').value,
+        
+        PUSHOVER_TOKEN: document.getElementById('cfg_PUSHOVER_TOKEN').value,
+        PUSHOVER_USER: document.getElementById('cfg_PUSHOVER_USER').value,
+        
+        DB_FILE: document.getElementById('cfg_DB_FILE').value
+      };
+
+      try {
+        const res = await fetch('/api/config', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(payload)
+        });
+        
+        if (res.ok) {
+          const status = document.getElementById('cfgStatus');
+          status.style.display = 'inline';
+          setTimeout(() => status.style.display = 'none', 3000);
+          
+          // Neu laden nach 1.5 Sekunden, damit die neuen TG-Buttons in der UI erscheinen
+          setTimeout(() => location.reload(), 1500);
+        }
+      } catch (e) {
+        console.error("Fehler beim Speichern der Konfiguration:", e);
       }
     }
 
@@ -384,10 +500,8 @@
         const distVal = (n.dist !== undefined && n.dist !== null && Number(n.dist) >= 0) ? Number(n.dist).toFixed(1) : '-';
         const nbVal = n.neighbours || 0;
 
-        // Zeitdifferenz in Millisekunden prüfen (3 Stunden = 10800000 ms)
         let staleClass = '';
         if (n.last) {
-            // "2026-10-15 21:50:00" in "2026-10-15T21:50:00" wandeln, damit Date() es sauber liest
             const lastDate = new Date(n.last.replace(' ', 'T'));
             if ((now - lastDate) > 10800000) {
                 staleClass = 'stale-node';
@@ -553,6 +667,12 @@
     }
 
     async function updateData() {
+      // Nicht fortlaufend Daten vom Server ziehen, solange man gerade Einstellungen tippt
+      if (document.getElementById('settingsView').style.display === 'block') {
+        setTimeout(updateData, 3000);
+        return;
+      }
+      
       try {
         const hoursEl = document.getElementById('linkHours');
         const hours = hoursEl ? hoursEl.value : '24';
