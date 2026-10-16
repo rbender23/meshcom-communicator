@@ -1,6 +1,6 @@
 # MeshCom Communicator
 
-Ein interaktives Web-Dashboard und Backend für [MeshCom](https://meshcom.oevsv.at/) Nodes. Das Skript lauscht auf den `extUDP`-Port des Nodes, speichert alle Telemetrie- und Chat-Daten in einer lokalen SQLite-Datenbank und stellt sie visuell im Browser dar.
+Ein interaktives Web-Dashboard und Backend für [MeshCom](https://icssw.org/meshcom/) Nodes. Das Skript lauscht auf den `extUDP`-Port des Nodes, speichert alle Telemetrie- und Chat-Daten in einer lokalen SQLite-Datenbank und stellt sie visuell im Browser dar.
 
 ## Features
 * **Live-Karte (Leaflet):** Zeichnet Nodes und aktive Mesh-Pfade (Routen) dynamisch auf einer Landkarte ein.
