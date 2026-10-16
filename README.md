@@ -11,6 +11,13 @@ Ein interaktives Web-Dashboard und Backend für [MeshCom](https://meshcom.oevsv.
 * **Live UDP Monitor:** Zeigt die rohen JSON-Pakete zur Fehlerdiagnose live im Browser.
 * **Web-Konfiguration & Theme:** Alle Parameter (IPs, Ports, Rufzeichen, API-Keys) lassen sich bequem direkt im Browser anpassen. Integrierter Dark/Light-Mode.
 
+## Screenshots
+![Ansicht des Dashboards](images/dashboard.png)
+![Ansicht der Karte](images/karte-1.png)
+![Ansicht der Karte mit Distanz](images/karte-2.png)
+![Ansicht der Karte mit Informationen](images/karte-3.png)
+![Ansicht der Einstellungsmöglichkeiten](images/einstellungen.png)
+
 ## Installation
 
 **1. Repository klonen**
@@ -76,3 +83,4 @@ Um den Communicator dauerhaft und automatisch im Hintergrund laufen zu lassen, r
    ```
 
 Du kannst den Status jederzeit mit `sudo systemctl status meshcom-communicator.service` überprüfen.
+
