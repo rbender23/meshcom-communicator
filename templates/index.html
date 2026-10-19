@@ -173,10 +173,16 @@
     <div id="udpConsole" class="udp-console">Warte auf UDP-Pakete...</div>
   </div>
   
-  <div class="box" style="margin-bottom: 15px;">
-    <input type="text" id="dst" value="{{ default_tg }}" style="width: 130px;" placeholder="Ziel (z.B. 26257)">
-    <input type="text" id="text" style="width: calc(100% - 250px); max-width: 600px;" placeholder="Nachricht..." onkeydown="if(event.key==='Enter') sendMsg()">
-    <button onclick="sendMsg()">Senden</button>
+  <div class="box" style="margin-bottom: 15px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+    <input type="text" id="dst" value="{{ default_tg }}" style="width: 130px; margin: 0;" placeholder="Ziel (z.B. 26257)">
+    
+    <!-- Modifiziertes Textfeld mit flexibler Breite und eingebettetem Zeichenzähler -->
+    <div style="position: relative; flex-grow: 1; max-width: 600px; min-width: 200px;">
+      <input type="text" id="text" style="width: 100%; box-sizing: border-box; padding-right: 45px; margin: 0;" maxlength="180" placeholder="Nachricht..." onkeydown="if(event.key==='Enter') sendMsg()">
+      <span id="charCount" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-size: 0.8em; color: #888; pointer-events: none;">180</span>
+    </div>
+    
+    <button style="margin: 0;" onclick="sendMsg()">Senden</button>
   </div>
 
   <!-- DASHBOARD ANSICHT -->
@@ -280,6 +286,19 @@
 
     const existingMarkers = {};
     const existingLines = {};
+
+    // Zeichenzähler für das Textfeld aktualisieren
+    document.getElementById('text').addEventListener('input', function() {
+      const remaining = 180 - this.value.length;
+      document.getElementById('charCount').innerText = remaining;
+      
+      // Optisches Feedback wenn es knapp wird
+      if (remaining <= 20) {
+        document.getElementById('charCount').style.color = '#e57373';
+      } else {
+        document.getElementById('charCount').style.color = '#888';
+      }
+    });
 
     function toggleTheme() {
       document.body.classList.toggle('light-mode');
@@ -423,6 +442,10 @@
       }
       input.value += `@${cleanCall} `;
       input.focus();
+      
+      // Update Zeichenzähler nach dem Einfügen
+      const remaining = 180 - input.value.length;
+      document.getElementById('charCount').innerText = remaining;
     }
 
     function formatTime(timestampStr) {
@@ -712,7 +735,10 @@
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({dst, text})
         });
+        
         document.getElementById('text').value = '';
+        document.getElementById('charCount').innerText = '180';
+        document.getElementById('charCount').style.color = '#888';
         updateData();
       } catch(e) {
         console.error("Sende-Fehler:", e);
