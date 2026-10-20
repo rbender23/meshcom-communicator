@@ -21,3 +21,11 @@ DB_FILE = ~/meshcom-communicator/meshcom.db
 
 [Weather]
 foshk_url =
+
+[APRS]
+enable = False
+server = euro.aprs2.net
+port = 14580
+passcode = -1
+sym_own = \I
+sym_remote = /#

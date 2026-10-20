@@ -9,6 +9,7 @@ import socket
 import sqlite3
 import sys
 import threading
+import time
 import urllib.parse
 import urllib.request
 from flask import Flask, jsonify, render_template, request, make_response
@@ -19,7 +20,7 @@ config = configparser.ConfigParser()
 
 if not os.path.exists(ini_path):
     print(f"[Warnung] Konfigurationsdatei '{ini_path}' nicht gefunden. Es werden Standardwerte verwendet.")
-    config.read_dict({'Network': {}, 'Radio': {}, 'Pushover': {}, 'Database': {}, 'Weather': {}})
+    config.read_dict({'Network': {}, 'Radio': {}, 'Pushover': {}, 'Weather': {}, 'Database': {}, 'APRS': {}})
 else:
     try:
         config.read(ini_path)
@@ -42,10 +43,18 @@ UI_TGS = [t.strip() for t in raw_ui_tgs.split(',') if t.strip()]
 PUSHOVER_TOKEN = config.get('Pushover', 'TOKEN', fallback="")
 PUSHOVER_USER = config.get('Pushover', 'USER', fallback="")
 
+FOSHK_URL = config.get('Weather', 'FOSHK_URL', fallback="")
+
 raw_db_path = config.get('Database', 'DB_FILE', fallback="~/meshcom-communicator/meshcom.db")
 DB_FILE = os.path.expanduser(raw_db_path)
 
-FOSHK_URL = config.get('Weather', 'FOSHK_URL', fallback="")
+# APRS-IS Konfiguration
+APRS_ENABLE = config.getboolean('APRS', 'ENABLE', fallback=False)
+APRS_SERVER = config.get('APRS', 'SERVER', fallback="euro.aprs2.net")
+APRS_PORT = config.getint('APRS', 'PORT', fallback=14580)
+APRS_PASSCODE = config.get('APRS', 'PASSCODE', fallback="-1")
+APRS_SYM_OWN = config.get('APRS', 'SYM_OWN', fallback="\\I")
+APRS_SYM_REMOTE = config.get('APRS', 'SYM_REMOTE', fallback="/#")
 
 # --- ENDE KONFIGURATION ---
 
@@ -61,6 +70,7 @@ HW_ID_MAP = {
 
 app = Flask(__name__)
 last_udp_packets = collections.deque(maxlen=30)
+aprs_upload_cache = {}  # Speichert den Zeitstempel des letzten Uploads pro Call
 
 
 def get_db_connection():
@@ -129,7 +139,7 @@ def init_db():
         conn.commit()
         conn.close()
     except Exception as e:
-        print(f"[DB Init Error] Die Datenbank konnte nicht initialisiert werden: {e}")
+        print(f"[DB Init Error] Datenbank init fehlgeschlagen: {e}")
 
 
 def haversine(lat1, lon1, lat2, lon2):
@@ -161,104 +171,139 @@ def resolve_hardware_name(node_data: dict) -> str:
 def extract_firmware(node_data: dict) -> str:
     fw = node_data.get("firmware")
     sub = str(node_data.get("fw_sub", "")).strip()
-    
-    if fw is None or fw == "":
-        return "-"
-        
+    if fw is None or fw == "": return "-"
     fw_str = str(fw).strip()
-    if "." in fw_str:
-        return f"{fw_str}{sub}"
-        
+    if "." in fw_str: return f"{fw_str}{sub}"
     try:
         fw_int = int(fw_str)
-        if fw_int == 0:
-            return f"0{sub}"
+        if fw_int == 0: return f"0{sub}"
         return f"4.{fw_int}{sub}"
     except ValueError:
         return f"{fw_str}{sub}"
 
 
 def send_pushover(title: str, msg: str) -> None:
-    if not PUSHOVER_TOKEN or not PUSHOVER_USER:
-        return
+    if not PUSHOVER_TOKEN or not PUSHOVER_USER: return
     url = "https://api.pushover.net/1/messages.json"
-    data = urllib.parse.urlencode({
-        "token": PUSHOVER_TOKEN,
-        "user": PUSHOVER_USER,
-        "title": title,
-        "message": msg
-    }).encode("utf-8")
+    data = urllib.parse.urlencode({"token": PUSHOVER_TOKEN, "user": PUSHOVER_USER, "title": title, "message": msg}).encode("utf-8")
     req = urllib.request.Request(url, data=data)
     try:
-        with urllib.request.urlopen(req, timeout=4):
-            pass
+        with urllib.request.urlopen(req, timeout=4): pass
     except Exception as e:
-        print(f"[Pushover Error] Konnte Benachrichtigung nicht senden: {e}")
+        print(f"[Pushover Error] {e}")
 
 
 def save_link_chain(conn, path_str, now):
-    if not path_str or "," not in path_str:
-        return
+    if not path_str or "," not in path_str: return
     nodes = [n.strip() for n in path_str.split(",") if n.strip()]
-    if len(nodes) < 2:
-        return
+    if len(nodes) < 2: return
     c = conn.cursor()
     for i in range(len(nodes) - 1):
         n1, n2 = nodes[i], nodes[i + 1]
-        if n1 == n2:
-            continue
+        if n1 == n2: continue
         pair = sorted([n1, n2])
-        c.execute("""INSERT INTO links (node1, node2, last_seen)
-                     VALUES (?, ?, ?)
+        c.execute("""INSERT INTO links (node1, node2, last_seen) VALUES (?, ?, ?)
                      ON CONFLICT(node1, node2) DO UPDATE SET last_seen=excluded.last_seen""",
                   (pair[0], pair[1], now))
 
 
 def clean_meshcom_text(text: str) -> str:
-    if not text:
-        return ""
+    if not text: return ""
     return re.sub(r"\{\d+\}?$", "", text).strip()
 
 
 def extract_coordinates(payload: dict):
     lat = payload.get("lat") or payload.get("latitude") or payload.get("LAT")
-    lon = (
-        payload.get("lon")
-        or payload.get("long")
-        or payload.get("longitude")
-        or payload.get("LON")
-        or payload.get("LONG")
-    )
-
+    lon = payload.get("lon") or payload.get("long") or payload.get("longitude") or payload.get("LON") or payload.get("LONG")
     if (lat is None or lon is None) and isinstance(payload.get("pos"), dict):
         p = payload["pos"]
         lat = p.get("lat") or p.get("latitude")
         lon = p.get("lon") or p.get("long") or p.get("longitude")
-
     try:
         if lat is not None and lon is not None:
             f_lat = float(lat)
             f_lon = float(lon)
-            if str(payload.get("lat_dir", "N")).upper() == "S" and f_lat > 0:
-                f_lat = -f_lat
-            if str(payload.get("long_dir", "E")).upper() == "W" and f_lon > 0:
-                f_lon = -f_lon
-            if f_lat == 0.0 and f_lon == 0.0:
-                return None, None
+            if str(payload.get("lat_dir", "N")).upper() == "S" and f_lat > 0: f_lat = -f_lat
+            if str(payload.get("long_dir", "E")).upper() == "W" and f_lon > 0: f_lon = -f_lon
+            if f_lat == 0.0 and f_lon == 0.0: return None, None
             return f_lat, f_lon
         return None, None
     except (ValueError, TypeError):
         return None, None
 
 
-def upsert_map_node(c, node_data: dict, fallback_call: str, now: str):
-    raw_call = node_data.get("call") or node_data.get("callsign") or node_data.get("name") or fallback_call
-    if not raw_call or raw_call == "Unbekannt":
+# --- APRS-IS FUNKTIONEN ---
+def dec_to_aprs_lat(lat):
+    direction = 'N' if lat >= 0 else 'S'
+    lat = abs(lat)
+    deg = int(lat)
+    min_val = (lat - deg) * 60
+    return f"{deg:02d}{min_val:05.2f}{direction}"
+
+def dec_to_aprs_lon(lon):
+    direction = 'E' if lon >= 0 else 'W'
+    lon = abs(lon)
+    deg = int(lon)
+    min_val = (lon - deg) * 60
+    return f"{deg:03d}{min_val:05.2f}{direction}"
+
+def try_aprs_upload(origin_call, path, lat, lon, is_me):
+    if not APRS_ENABLE or lat == 0.0 or lon == 0.0:
         return
 
-    parts = [p.strip() for p in str(raw_call).split(",") if p.strip()]
-    if not parts:
+    is_direct = ("," not in path)
+    if not is_me and not is_direct:
         return
+
+    now_ts = time.time()
+    last_upload = aprs_upload_cache.get(origin_call, 0)
+    
+    if (now_ts - last_upload) < 900:
+        return
+
+    sym_str = APRS_SYM_OWN if is_me else APRS_SYM_REMOTE
+    if len(sym_str) < 2:
+        sym_str = "\\I" if is_me else "/#"
+    
+    sym_table = sym_str[0]
+    sym_char = sym_str[1]
+    
+    aprs_lat = dec_to_aprs_lat(lat)
+    aprs_lon = dec_to_aprs_lon(lon)
+    comment = " MeshCom Node" if not is_me else " MeshCom Gateway"
+    
+    packet = f"{origin_call}>APRS,TCPIP*:={aprs_lat}{sym_table}{aprs_lon}{sym_char}{comment}\r\n"
+    auth = f"user {LOCAL_NODE_CALL} pass {APRS_PASSCODE} vers MeshComComm 1.1\r\n"
+
+    def do_upload():
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(5.0)
+                s.connect((APRS_SERVER, APRS_PORT))
+                s.sendall(auth.encode('utf-8'))
+                s.sendall(packet.encode('utf-8'))
+                aprs_upload_cache[origin_call] = now_ts
+                
+                now_time = datetime.datetime.now().strftime("%H:%M:%S")
+                last_udp_packets.appendleft({
+                    "time": now_time,
+                    "ip": f"APRS ➔ {APRS_SERVER}",
+                    "raw": f"Uploaded {origin_call}: {aprs_lat} {aprs_lon}"
+                })
+                print(f"[APRS-IS] Upload {origin_call}: {aprs_lat} {aprs_lon}")
+        except Exception as e:
+            print(f"[APRS-IS Error] Fehler bei Upload für {origin_call}: {e}")
+
+    threading.Thread(target=do_upload, daemon=True).start()
+# --- ENDE APRS ---
+
+
+def upsert_map_node(c, node_data: dict, fallback_call: str, now: str):
+    raw_call = node_data.get("call") or node_data.get("callsign") or node_data.get("name") or fallback_call
+    if not raw_call or raw_call == "Unbekannt": return
+
+    parts = [p.strip() for p in str(raw_call).split(",") if p.strip()]
+    if not parts: return
     origin_call = parts[0]
     path = ("," + ",".join(parts[1:])) if len(parts) > 1 else ""
 
@@ -285,48 +330,40 @@ def upsert_map_node(c, node_data: dict, fallback_call: str, now: str):
                  fw=CASE WHEN excluded.fw != '-' THEN excluded.fw ELSE mheard.fw END""",
               (origin_call, path, now, hw, snr, rssi, dist, lat, lon, alt, fw))
 
+    if lat is not None and lon is not None:
+        is_me = (origin_call.upper() == LOCAL_NODE_CALL.upper())
+        try_aprs_upload(origin_call, path, lat, lon, is_me)
+
 
 def upsert_direct_heard(c, node_data: dict, fallback_call: str, now: str):
     raw_call = node_data.get("call") or node_data.get("callsign") or node_data.get("name") or fallback_call
-    if not raw_call or raw_call == "Unbekannt":
-        return
+    if not raw_call or raw_call == "Unbekannt": return
 
-    try:
-        rssi = float(node_data.get("rssi") or 0.0)
-        snr = float(node_data.get("snr") or 0.0)
-    except (ValueError, TypeError):
-        return
-
-    if rssi == 0.0:
-        return
+    try: rssi = float(node_data.get("rssi") or 0.0)
+    except (ValueError, TypeError): return
+    if rssi == 0.0: return
 
     parts = [p.strip() for p in str(raw_call).split(",") if p.strip()]
-    if not parts:
-        return
+    if not parts: return
 
-    if parts[-1].upper() == LOCAL_NODE_CALL.upper():
-        parts.pop()
-    if not parts:
-        return
+    if parts[-1].upper() == LOCAL_NODE_CALL.upper(): parts.pop()
+    if not parts: return
 
     is_single_hop = (len(parts) == 1)
     direct_call = parts[-1]
+    if direct_call.upper() == LOCAL_NODE_CALL.upper(): return
 
-    if direct_call.upper() == LOCAL_NODE_CALL.upper():
-        return
+    try: snr = float(node_data.get("snr") or 0.0)
+    except: snr = 0.0
 
     hw = resolve_hardware_name(node_data) if is_single_hop else "-"
     fw = extract_firmware(node_data) if is_single_hop else "-"
     
-    try:
-        dist = float(node_data.get("dist") or node_data.get("distance") or -1.0) if is_single_hop else -1.0
-    except (ValueError, TypeError):
-        dist = -1.0
+    try: dist = float(node_data.get("dist") or -1.0) if is_single_hop else -1.0
+    except: dist = -1.0
 
-    try:
-        neighbours = int(node_data.get("nb") or node_data.get("neighbours") or 0)
-    except (ValueError, TypeError):
-        neighbours = 0
+    try: neighbours = int(node_data.get("nb") or 0)
+    except: neighbours = 0
 
     c.execute("""INSERT INTO direct_heard (callsign, last_seen, hw, snr, rssi, distance, neighbours, fw)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -354,27 +391,18 @@ def udp_listener():
             raw = data.decode("utf-8", errors="ignore").strip()
             now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-            last_udp_packets.appendleft({
-                "time": now.split(" ")[1],
-                "ip": f"RX ⬅ {addr[0]}",
-                "raw": raw
-            })
+            last_udp_packets.appendleft({"time": now.split(" ")[1], "ip": f"RX ⬅ {addr[0]}", "raw": raw})
 
-            try:
-                payload = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
+            try: payload = json.loads(raw)
+            except json.JSONDecodeError: continue
 
             conn = get_db_connection()
             c = conn.cursor()
 
             src = payload.get("src", payload.get("from", "Unbekannt"))
             dst = str(payload.get("dst", payload.get("to", "")))
-
-            try:
-                pkt_rssi = float(payload.get("rssi") or 0.0)
-            except (ValueError, TypeError):
-                pkt_rssi = 0.0
+            try: pkt_rssi = float(payload.get("rssi") or 0.0)
+            except: pkt_rssi = 0.0
 
             link_path = src
             if pkt_rssi < 0.0:
@@ -396,7 +424,6 @@ def udp_listener():
                 else:
                     msg_id_match = re.search(r"\{(\d+)\}?$", raw_msg.strip())
                     ack_id_val = msg_id_match.group(1) if msg_id_match else None
-
                     clean_text = clean_meshcom_text(raw_msg)
                     if clean_text:
                         c.execute("INSERT INTO messages (timestamp, src, dst, text, ack, ack_id) VALUES (?, ?, ?, ?, 0, ?)",
@@ -409,7 +436,6 @@ def udp_listener():
                         if (not is_local_gateway) or (origin_call == "DO5RBB-44"):
                             should_alert = False
                             alert_title = ""
-
                             if dst.upper().startswith("DO5RBB"):
                                 should_alert = True
                                 alert_title = f"MeshCom [DM] {src} ➔ {dst}"
@@ -423,13 +449,7 @@ def udp_listener():
                             if should_alert:
                                 send_pushover(alert_title, clean_text)
 
-            node_list = (
-                payload.get("mh")
-                or payload.get("nodes")
-                or payload.get("mheard")
-                or payload.get("list")
-            )
-
+            node_list = payload.get("mh") or payload.get("nodes") or payload.get("mheard") or payload.get("list")
             if isinstance(node_list, list):
                 for item in node_list:
                     if isinstance(item, dict):
@@ -443,13 +463,11 @@ def udp_listener():
         except Exception as ex:
             print(f"[UDP Loop Exception] {ex}")
         finally:
-            if conn:
-                conn.close()
+            if conn: conn.close()
 
 
 @app.route("/")
 def index():
-    # Wir übergeben HTML nun das Flag, ob eine Wetter-URL existiert
     wx_enabled = bool(FOSHK_URL.strip())
     resp = make_response(render_template("index.html", my_call=MY_CALL, default_tg=TARGET_TG, ui_tgs=UI_TGS, wx_enabled=wx_enabled))
     resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
@@ -460,26 +478,27 @@ def index():
 def get_config():
     return jsonify({
         "Network": {
-            "UDP_BIND_IP": UDP_BIND_IP,
-            "UDP_PORT": UDP_PORT,
-            "WEB_PORT": WEB_PORT,
-            "NODE_IP": NODE_IP
+            "UDP_BIND_IP": UDP_BIND_IP, "UDP_PORT": UDP_PORT, "WEB_PORT": WEB_PORT, "NODE_IP": NODE_IP
         },
         "Radio": {
-            "MY_CALL": MY_CALL,
-            "LOCAL_NODE_CALL": LOCAL_NODE_CALL,
-            "TARGET_TG": TARGET_TG,
-            "UI_TGS": ", ".join(UI_TGS)
+            "MY_CALL": MY_CALL, "LOCAL_NODE_CALL": LOCAL_NODE_CALL, "TARGET_TG": TARGET_TG, "UI_TGS": ", ".join(UI_TGS)
         },
         "Pushover": {
-            "TOKEN": PUSHOVER_TOKEN,
-            "USER": PUSHOVER_USER
+            "TOKEN": PUSHOVER_TOKEN, "USER": PUSHOVER_USER
+        },
+        "Weather": {
+            "FOSHK_URL": FOSHK_URL
         },
         "Database": {
             "DB_FILE": raw_db_path
         },
-        "Weather": {
-            "FOSHK_URL": FOSHK_URL
+        "APRS": {
+            "ENABLE": str(APRS_ENABLE),
+            "SERVER": APRS_SERVER,
+            "PORT": APRS_PORT,
+            "PASSCODE": APRS_PASSCODE,
+            "SYM_OWN": APRS_SYM_OWN,
+            "SYM_REMOTE": APRS_SYM_REMOTE
         }
     })
 
@@ -488,16 +507,13 @@ def save_config():
     global UDP_BIND_IP, UDP_PORT, WEB_PORT, NODE_IP
     global MY_CALL, LOCAL_NODE_CALL, TARGET_TG, UI_TGS
     global PUSHOVER_TOKEN, PUSHOVER_USER
-    global raw_db_path, DB_FILE
-    global FOSHK_URL
+    global FOSHK_URL, raw_db_path, DB_FILE
+    global APRS_ENABLE, APRS_SERVER, APRS_PORT, APRS_PASSCODE, APRS_SYM_OWN, APRS_SYM_REMOTE
 
     data = request.json or {}
     
-    if not config.has_section('Network'): config.add_section('Network')
-    if not config.has_section('Radio'): config.add_section('Radio')
-    if not config.has_section('Pushover'): config.add_section('Pushover')
-    if not config.has_section('Database'): config.add_section('Database')
-    if not config.has_section('Weather'): config.add_section('Weather')
+    for sec in ['Network', 'Radio', 'Pushover', 'Weather', 'Database', 'APRS']:
+        if not config.has_section(sec): config.add_section(sec)
 
     config.set('Network', 'NODE_IP', str(data.get('NODE_IP', NODE_IP)))
     config.set('Network', 'UDP_BIND_IP', str(data.get('UDP_BIND_IP', UDP_BIND_IP)))
@@ -512,9 +528,16 @@ def save_config():
     config.set('Pushover', 'TOKEN', str(data.get('PUSHOVER_TOKEN', PUSHOVER_TOKEN)))
     config.set('Pushover', 'USER', str(data.get('PUSHOVER_USER', PUSHOVER_USER)))
 
-    config.set('Database', 'DB_FILE', str(data.get('DB_FILE', raw_db_path)))
-    
     config.set('Weather', 'FOSHK_URL', str(data.get('FOSHK_URL', FOSHK_URL)))
+    config.set('Database', 'DB_FILE', str(data.get('DB_FILE', raw_db_path)))
+
+    aprs_en_str = str(data.get('APRS_ENABLE', 'False'))
+    config.set('APRS', 'ENABLE', aprs_en_str)
+    config.set('APRS', 'SERVER', str(data.get('APRS_SERVER', APRS_SERVER)))
+    config.set('APRS', 'PORT', str(data.get('APRS_PORT', APRS_PORT)))
+    config.set('APRS', 'PASSCODE', str(data.get('APRS_PASSCODE', APRS_PASSCODE)))
+    config.set('APRS', 'SYM_OWN', str(data.get('APRS_SYM_OWN', APRS_SYM_OWN)))
+    config.set('APRS', 'SYM_REMOTE', str(data.get('APRS_SYM_REMOTE', APRS_SYM_REMOTE)))
 
     try:
         with open(ini_path, 'w') as configfile:
@@ -529,23 +552,26 @@ def save_config():
     
     raw_ui = str(data.get('UI_TGS', ""))
     UI_TGS = [t.strip() for t in raw_ui.split(',') if t.strip()]
-    if not UI_TGS:
-        UI_TGS = [TARGET_TG]
+    if not UI_TGS: UI_TGS = [TARGET_TG]
 
     PUSHOVER_TOKEN = str(data.get('PUSHOVER_TOKEN', PUSHOVER_TOKEN))
     PUSHOVER_USER = str(data.get('PUSHOVER_USER', PUSHOVER_USER))
-    
     FOSHK_URL = str(data.get('FOSHK_URL', FOSHK_URL))
+    
+    APRS_ENABLE = (aprs_en_str.lower() in ('true', '1', 'yes', 'on'))
+    APRS_SERVER = str(data.get('APRS_SERVER', APRS_SERVER))
+    APRS_PORT = int(data.get('APRS_PORT', APRS_PORT))
+    APRS_PASSCODE = str(data.get('APRS_PASSCODE', APRS_PASSCODE))
+    APRS_SYM_OWN = str(data.get('APRS_SYM_OWN', APRS_SYM_OWN))
+    APRS_SYM_REMOTE = str(data.get('APRS_SYM_REMOTE', APRS_SYM_REMOTE))
 
     return jsonify({"status": "ok"})
 
 
 @app.route("/api/data")
 def get_data():
-    try:
-        hours = int(request.args.get("hours", 24))
-    except (ValueError, TypeError):
-        hours = 24
+    try: hours = int(request.args.get("hours", 24))
+    except (ValueError, TypeError): hours = 24
 
     conn = None
     try:
@@ -567,52 +593,35 @@ def get_data():
         direct_nodes = []
         for r in c.fetchall():
             call, last, hw, snr, rssi, nb, lat, lon, fw = r
-            
             calc_dist = -1.0
             if my_lat != 0.0 and my_lon != 0.0 and lat and lon and lat != 0.0 and lon != 0.0:
                 calc_dist = haversine(my_lat, my_lon, lat, lon)
             
             c.execute("""SELECT COUNT(DISTINCT CASE WHEN node1 = ? THEN node2 ELSE node1 END) 
-                         FROM links 
-                         WHERE (node1 = ? OR node2 = ?) 
-                         AND last_seen >= datetime('now', 'localtime', '-24 hours')""", (call, call, call))
+                         FROM links WHERE (node1 = ? OR node2 = ?) AND last_seen >= datetime('now', 'localtime', '-24 hours')""", (call, call, call))
             db_nb = c.fetchone()[0]
             final_nb = db_nb if db_nb > 0 else (nb or 0)
 
             direct_nodes.append({
-                "call": call, "last": last, "hw": hw,
-                "snr": snr, "rssi": rssi, "dist": calc_dist, "neighbours": final_nb, "fw": fw
+                "call": call, "last": last, "hw": hw, "snr": snr, "rssi": rssi, "dist": calc_dist, "neighbours": final_nb, "fw": fw
             })
 
-        c.execute("""SELECT m.callsign, m.path, 
-                            MAX(m.last_seen, COALESCE(d.last_seen, '')) as recent_time,
+        c.execute("""SELECT m.callsign, m.path, MAX(m.last_seen, COALESCE(d.last_seen, '')) as recent_time,
                             m.hw, m.snr, m.rssi, m.distance, m.lat, m.lon, m.alt, m.fw 
-                     FROM mheard m
-                     LEFT JOIN direct_heard d ON m.callsign = d.callsign
-                     WHERE m.last_seen >= datetime('now', 'localtime', ?)
-                        OR d.last_seen >= datetime('now', 'localtime', ?)
+                     FROM mheard m LEFT JOIN direct_heard d ON m.callsign = d.callsign
+                     WHERE m.last_seen >= datetime('now', 'localtime', ?) OR d.last_seen >= datetime('now', 'localtime', ?)
                      ORDER BY recent_time DESC LIMIT 100""", (f"-{hours} hours", f"-{hours} hours"))
                      
-        map_nodes = [{
-            "call": r[0], "path": r[1] or "", "last": r[2], "hw": r[3],
-            "snr": r[4], "rssi": r[5], "dist": r[6], "lat": r[7], "lon": r[8], "alt": r[9], "fw": r[10]
-        } for r in c.fetchall()]
+        map_nodes = [{"call": r[0], "path": r[1] or "", "last": r[2], "hw": r[3], "snr": r[4], "rssi": r[5], "dist": r[6], "lat": r[7], "lon": r[8], "alt": r[9], "fw": r[10]} for r in c.fetchall()]
 
         c.execute("SELECT node1, node2, last_seen FROM links WHERE last_seen >= datetime('now', 'localtime', ?)", (f"-{hours} hours",))
         links = [{"from": r[0], "to": r[1], "last": r[2]} for r in c.fetchall()]
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
-        if conn:
-            conn.close()
+        if conn: conn.close()
 
-    resp = jsonify({
-        "messages": msgs,
-        "direct_nodes": direct_nodes,
-        "nodes": map_nodes,
-        "links": links,
-        "raw_udp": list(last_udp_packets)
-    })
+    resp = jsonify({"messages": msgs, "direct_nodes": direct_nodes, "nodes": map_nodes, "links": links, "raw_udp": list(last_udp_packets)})
     resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     return resp
 
@@ -628,8 +637,7 @@ def clear_heard():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
     finally:
-        if conn:
-            conn.close()
+        if conn: conn.close()
 
 
 @app.route("/api/send", methods=["POST"])
@@ -638,26 +646,15 @@ def send_msg():
     dst = data.get("dst", TARGET_TG).strip()
     text = data.get("text", "").strip()
 
-    if not text:
-        return jsonify({"status": "error", "message": "Text darf nicht leer sein"}), 400
+    if not text: return jsonify({"status": "error", "message": "Text darf nicht leer sein"}), 400
 
     try:
-        payload = {
-            "type": "msg",
-            "dst": dst,
-            "msg": text
-        }
+        payload = {"type": "msg", "dst": dst, "msg": text}
         raw_str = json.dumps(payload)
-
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
             sock.sendto(raw_str.encode("utf-8"), (NODE_IP, UDP_PORT))
-
         now_time = datetime.datetime.now().strftime("%H:%M:%S")
-        last_udp_packets.appendleft({
-            "time": now_time,
-            "ip": f"TX ➔ {NODE_IP}",
-            "raw": raw_str
-        })
+        last_udp_packets.appendleft({"time": now_time, "ip": f"TX ➔ {NODE_IP}", "raw": raw_str})
         return jsonify({"status": "ok"})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -671,10 +668,8 @@ def get_wx():
     def get_val(raw_text, key, decimals=1):
         match = re.search(rf"\b{key}\b[^\d-]*([-\d.]+)", raw_text, re.IGNORECASE)
         if match:
-            try:
-                return f"{float(match.group(1)):.{decimals}f}"
-            except (ValueError, TypeError):
-                pass
+            try: return f"{float(match.group(1)):.{decimals}f}"
+            except: pass
         return "--"
 
     try:
@@ -691,7 +686,6 @@ def get_wx():
         rain_week = get_val(raw_text, "weeklyrainmm", 1)
 
         wx_text = f"WX Wilgersdorf (https://wetter.r-bender.de) 🌡️{temp}°C 💧{hum}% 💨{wind}km/h (Böen {gust}) 📉{press}hPa ☔Tag:{rain_day}mm/Wo:{rain_week}mm"
-        
         return jsonify({"status": "ok", "text": wx_text})
     except Exception as e:
         return jsonify({"status": "error", "message": f"Fehler beim Abruf: {str(e)}"}), 500

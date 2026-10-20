@@ -5,141 +5,85 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MeshCom Communicator</title>
   
-  <!-- Leaflet CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 15px; background: #121212; color: #e0e0e0; transition: background 0.3s, color 0.3s; }
     h2, h3 { color: #64b5f6; margin-bottom: 8px; }
     .header-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px; }
-    
     .grid { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; align-items: start; }
     @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
-    
     .box { background: #1e1e1e; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.5); }
     input, button, select { padding: 8px 12px; margin: 4px 0; border-radius: 4px; border: 1px solid #444; background: #2a2a2a; color: #fff; }
     button { background: #1976d2; cursor: pointer; border: none; font-weight: bold; }
     button:hover { background: #2196f3; }
-    
     .tabs { display: flex; gap: 8px; margin: 10px 0; flex-wrap: wrap; }
     .tab-btn { background: #2a2a2a; border: 1px solid #444; font-size: 0.85em; padding: 5px 12px; border-radius: 15px; cursor: pointer; color: #bbb; }
     .tab-btn.active { background: #0288d1; color: #fff; border-color: #0288d1; }
-
-    /* Live UDP Monitor */
     .udp-console { background: #0d0d0d; border: 1px solid #333; border-radius: 6px; padding: 8px; margin-top: 8px; max-height: 220px; overflow-y: auto; font-family: monospace; font-size: 0.82em; color: #b0bec5; }
     .udp-line { border-bottom: 1px dashed #222; padding: 3px 0; word-break: break-all; }
     .udp-tx { color: #ffca28; }
     .udp-rx { color: #81c784; }
-
-    /* Settings View */
+    .udp-aprs { color: #b39ddb; }
     .settings-grid { display: grid; grid-template-columns: 250px 1fr; gap: 10px; max-width: 600px; align-items: center; }
     .settings-grid h4 { grid-column: span 2; margin-top: 15px; margin-bottom: 5px; color: #ffb74d; border-bottom: 1px solid #444; padding-bottom: 3px; font-size: 1.1em; }
-    .settings-grid input { width: 100%; box-sizing: border-box; }
-
-    /* Heard Nodes Cards */
+    .settings-grid input, .settings-grid select { width: 100%; box-sizing: border-box; }
     .heard-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
     .heard-card { background: #2c3034; border-radius: 6px; padding: 8px 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.35); transition: color 0.3s; }
     .heard-call { font-size: 1em; font-weight: bold; color: #64b5f6; margin-bottom: 4px; cursor: pointer; display: inline-block; }
     .heard-call:hover { color: #bbdefb; text-decoration: underline; }
     .heard-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px; font-size: 0.8em; color: #f0f0f0; line-height: 1.2; }
-
-    /* Veraltete Nodes (> 3 Stunden) */
     .stale-node .heard-call { color: #455a64; }
     .stale-node .heard-grid { color: #546e7a; }
     .stale-node .mention-btn { background: #263238; color: #455a64; border-color: #37474f; }
-
     table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.9em; }
     th, td { text-align: left; padding: 7px 6px; border-bottom: 1px solid #333; }
     th { color: #90caf9; }
-    
     .clickable-call { cursor: pointer; color: #64b5f6; text-decoration: underline dotted; font-weight: bold; }
     .clickable-call:hover { color: #bbdefb; }
-    
     .popup-call { font-size: 1.1em; font-weight: bold; color: #64b5f6; cursor: pointer; display: inline-block; }
     .popup-call:hover { color: #bbdefb; text-decoration: underline; }
-
-    /* @-Mention Button */
     .mention-btn { color: #64b5f6; cursor: pointer; font-weight: bold; font-size: 0.85em; background: #333; padding: 1px 5px; border-radius: 4px; margin-left: 4px; display: inline-block; border: 1px solid #444; }
     .mention-btn:hover { background: #64b5f6; color: #111; }
-
     .path-text { color: #777; font-size: 0.85em; word-break: break-all; margin-left: 4px; }
     .dm { color: #81c784; font-weight: bold; }
     .tg { color: #ffb74d; }
     .broadcast { color: #e57373; }
     .time-col { white-space: nowrap; font-size: 0.85em; color: #aaa; }
-
-    /* Karten-Container & Tooltips */
     #mapView { display: none; margin-top: 10px; }
     #map { height: 650px; border-radius: 8px; border: 1px solid #333; }
     .leaflet-popup-content-wrapper { background: #222; color: #eee; border: 1px solid #555; }
     .leaflet-popup-tip { background: #222; }
     .map-controls { display: flex; align-items: center; gap: 15px; }
-
-    /* Permanente Marker-Labels */
-    .marker-label {
-      background: rgba(30, 30, 30, 0.85);
-      border: 1px solid #0288d1;
-      color: #e0e0e0;
-      font-weight: bold;
-      border-radius: 4px;
-      padding: 2px 6px;
-      font-size: 0.85em;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.5);
-    }
+    .marker-label { background: rgba(30, 30, 30, 0.85); border: 1px solid #0288d1; color: #e0e0e0; font-weight: bold; border-radius: 4px; padding: 2px 6px; font-size: 0.85em; box-shadow: 0 1px 3px rgba(0,0,0,0.5); }
     .leaflet-tooltip-left.marker-label::before { border-left-color: #0288d1; }
     .leaflet-tooltip-right.marker-label::before { border-right-color: #0288d1; }
+    .line-tooltip { background: rgba(20, 20, 20, 0.9); color: #fff; border: 1px solid #333; text-align: center; font-size: 0.95em; border-radius: 4px; padding: 6px 10px; }
+    .leaflet-tooltip-top.line-tooltip::before, .leaflet-tooltip-bottom.line-tooltip::before, .leaflet-tooltip-left.line-tooltip::before, .leaflet-tooltip-right.line-tooltip::before { display: none; }
 
-    /* Hover-Tooltip für die Linien */
-    .line-tooltip {
-      background: rgba(20, 20, 20, 0.9);
-      color: #fff;
-      border: 1px solid #333;
-      text-align: center;
-      font-size: 0.95em;
-      border-radius: 4px;
-      padding: 6px 10px;
-    }
-    .leaflet-tooltip-top.line-tooltip::before,
-    .leaflet-tooltip-bottom.line-tooltip::before,
-    .leaflet-tooltip-left.line-tooltip::before,
-    .leaflet-tooltip-right.line-tooltip::before { display: none; }
-
-    /* =========================================
-       LIGHT MODE STYLES 
-       ========================================= */
     body.light-mode { background: #f0f2f5; color: #222; }
     body.light-mode .box { background: #ffffff; box-shadow: 0 2px 6px rgba(0,0,0,0.08); }
     body.light-mode h2, body.light-mode h3 { color: #1565c0; }
     body.light-mode input, body.light-mode select { background: #ffffff; color: #000; border: 1px solid #ccc; }
     body.light-mode .tab-btn { background: #e0e0e0; color: #333; border: 1px solid #ccc; }
     body.light-mode .tab-btn.active { background: #0288d1; color: #fff; border-color: #0288d1; }
-    
     body.light-mode .udp-console { background: #f8f9fa; border-color: #ddd; color: #333; }
     body.light-mode .udp-line { border-bottom: 1px dashed #ddd; }
     body.light-mode .udp-tx { color: #d84315; }
     body.light-mode .udp-rx { color: #2e7d32; }
-    
+    body.light-mode .udp-aprs { color: #5e35b1; }
     body.light-mode .settings-grid h4 { border-color: #ddd; color: #d84315; }
-
     body.light-mode .heard-card { background: #ffffff; box-shadow: 0 1px 4px rgba(0,0,0,0.12); border: 1px solid #e0e0e0; }
     body.light-mode .heard-grid { color: #555; }
-    
-    /* Veraltete Nodes Light Mode */
     body.light-mode .stale-node .heard-call { color: #90a4ae; }
     body.light-mode .stale-node .heard-grid { color: #b0bec5; }
     body.light-mode .stale-node .mention-btn { background: #eceff1; color: #90a4ae; border-color: #cfd8dc; }
-
     body.light-mode th { color: #1565c0; }
     body.light-mode th, body.light-mode td { border-bottom: 1px solid #eee; }
-    
     body.light-mode .clickable-call, body.light-mode .heard-call, body.light-mode .popup-call { color: #1565c0; }
     body.light-mode .clickable-call:hover, body.light-mode .heard-call:hover, body.light-mode .popup-call:hover { color: #0d47a1; }
-    
     body.light-mode .mention-btn { color: #1565c0; background: #f0f0f0; border: 1px solid #ccc; }
     body.light-mode .mention-btn:hover { background: #1565c0; color: #fff; }
-    
     body.light-mode .path-text, body.light-mode .time-col { color: #777; }
-    
     body.light-mode .leaflet-popup-content-wrapper, body.light-mode .leaflet-popup-tip { background: #fff; color: #222; border-color: #ccc; }
     body.light-mode .marker-label { background: rgba(255, 255, 255, 0.9); color: #222; border-color: #0288d1; }
     body.light-mode .line-tooltip { background: rgba(255, 255, 255, 0.95); color: #222; border-color: #999; }
@@ -148,9 +92,7 @@
 <body>
 
   <script>
-    if (localStorage.getItem('theme') === 'light') {
-      document.body.classList.add('light-mode');
-    }
+    if (localStorage.getItem('theme') === 'light') { document.body.classList.add('light-mode'); }
   </script>
 
   <div class="header-bar">
@@ -164,55 +106,45 @@
     </div>
   </div>
 
-  <!-- LIVE UDP MONITOR -->
   <div id="monPanel" class="box" style="display: none; margin-bottom: 15px; border: 1px solid #0288d1;">
     <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
       <h3 style="margin: 0; font-size: 1em;">🔍 Live extUDP-Paketmonitor (Port 1799)</h3>
-      <span style="font-size: 0.8em; color: #999;">Zeigt die letzten 30 rohen JSON-Pakete vom/zum Node (Pos, Telemetrie, Msg)</span>
+      <span style="font-size: 0.8em; color: #999;">Zeigt die letzten 30 rohen JSON-Pakete vom/zum Node</span>
     </div>
     <div id="udpConsole" class="udp-console">Warte auf UDP-Pakete...</div>
   </div>
   
   <div class="box" style="margin-bottom: 15px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
     <input type="text" id="dst" value="{{ default_tg }}" style="width: 130px; margin: 0;" placeholder="Ziel (z.B. 26257)">
-    
     <div style="position: relative; flex-grow: 1; max-width: 600px; min-width: 200px;">
       <input type="text" id="text" style="width: 100%; box-sizing: border-box; padding-right: 45px; margin: 0;" maxlength="180" placeholder="Nachricht..." onkeydown="if(event.key==='Enter') sendMsg()">
       <span id="charCount" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-size: 0.8em; color: #888; pointer-events: none;">180</span>
     </div>
-    
     <button style="margin: 0;" onclick="sendMsg()">Senden</button>
-    
-    <!-- Button wird nur gerendert, wenn FOSHK_URL in den Einstellungen gesetzt ist -->
     {% if wx_enabled %}
     <button style="margin: 0; background: #00897b;" onclick="fetchWeather()" title="Lokale Wetterdaten abrufen">⛅</button>
     {% endif %}
   </div>
 
-  <!-- DASHBOARD ANSICHT -->
   <div id="dashView" class="grid">
     <div class="box">
       <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
         <h3 style="margin: 0;">💬 Nachrichten</h3>
         <div class="tabs">
           <button class="tab-btn active" onclick="setFilter('ALL', this)">Alle</button>
-          
           {% for tg in ui_tgs %}
           <button class="tab-btn" onclick="setFilter('{{ tg }}', this)">TG {{ tg }}</button>
           {% endfor %}
-          
           <button class="tab-btn" onclick="setFilter('*', this)">Broadcast (*)</button>
           <button class="tab-btn" onclick="setFilter('DM', this)">Direkt (DM)</button>
         </div>
       </div>
-
       <table>
         <thead><tr><th>Zeit</th><th>Von</th><th>An</th><th>Text</th></tr></thead>
         <tbody id="msgBody"></tbody>
       </table>
     </div>
 
-    <!-- HEARD NODES -->
     <div class="box">
       <div style="display: flex; justify-content: space-between; align-items: center;">
         <h3 style="margin: 0;">📻 Heard Nodes</h3>
@@ -222,7 +154,6 @@
     </div>
   </div>
 
-  <!-- KARTEN ANSICHT -->
   <div id="mapView" class="box">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 10px;">
       <h3 style="margin: 0;">🗺️ Aktive Mesh-Pfade & Gehörte Nodes</h3>
@@ -233,10 +164,8 @@
             <option value="1">letzte 1 Stunde</option>
             <option value="2">letzte 2 Stunden</option>
             <option value="4">letzte 4 Stunden</option>
-            <option value="6">letzte 6 Stunden</option>
             <option value="12">letzte 12 Stunden</option>
             <option value="24" selected>letzte 24 Stunden</option>
-            <option value="48">letzte 48 Stunden</option>
           </select>
         </label>
         <span id="mapStatus" style="font-size: 0.85em; color: #ffca28; font-weight: bold;">Lade Kartendaten...</span>
@@ -245,36 +174,42 @@
     <div id="map"></div>
   </div>
 
-  <!-- EINSTELLUNGEN ANSICHT -->
   <div id="settingsView" class="box" style="display: none;">
     <h3 style="margin: 0 0 10px 0;">⚙️ Konfiguration (app.ini)</h3>
-    <p style="font-size: 0.85em; color: #aaa; margin-top: 0;">Hinweis: Änderungen an Pfaden oder URLs werden teilweise erst nach einem Neustart aktiv.</p>
+    <p style="font-size: 0.85em; color: #aaa; margin-top: 0;">Hinweis: Änderungen erfordern zum Teil einen Hintergrund-Neustart.</p>
     
     <div class="settings-grid">
-        <!-- Network -->
         <h4>Netzwerk</h4>
         <label>Node IP (TX Ziel):</label> <input type="text" id="cfg_NODE_IP">
         <label>UDP Bind IP:</label> <input type="text" id="cfg_UDP_BIND_IP">
         <label>UDP Port:</label> <input type="text" id="cfg_UDP_PORT">
         <label>Web Port:</label> <input type="text" id="cfg_WEB_PORT">
         
-        <!-- Radio -->
         <h4>Funk</h4>
         <label>Mein Rufzeichen:</label> <input type="text" id="cfg_MY_CALL">
         <label>Gateway Node Call:</label> <input type="text" id="cfg_LOCAL_NODE_CALL">
         <label>Standard TG (Ziel):</label> <input type="text" id="cfg_TARGET_TG">
-        <label>UI Filter TGs (kommagetrennt):</label> <input type="text" id="cfg_UI_TGS" placeholder="z.B. 26257, 262, 2625">
+        <label>UI Filter TGs (kommagetrennt):</label> <input type="text" id="cfg_UI_TGS">
 
-        <!-- Pushover -->
+        <h4>APRS-IS Gateway</h4>
+        <label>APRS Upload aktivieren:</label> 
+        <select id="cfg_APRS_ENABLE">
+          <option value="False">Deaktiviert</option>
+          <option value="True">Aktiviert</option>
+        </select>
+        <label>APRS Server:</label> <input type="text" id="cfg_APRS_SERVER" placeholder="euro.aprs2.net">
+        <label>APRS Port:</label> <input type="text" id="cfg_APRS_PORT" placeholder="14580">
+        <label>APRS Passcode:</label> <input type="text" id="cfg_APRS_PASSCODE" placeholder="Passcode (z.B. für DO5RBB)">
+        <label>Symbol eigener Node:</label> <input type="text" id="cfg_APRS_SYM_OWN" placeholder="\I (Gateway)">
+        <label>Symbol andere Nodes:</label> <input type="text" id="cfg_APRS_SYM_REMOTE" placeholder="/# (Digipeater)">
+
         <h4>Pushover Alarme</h4>
-        <label>App Token:</label> <input type="text" id="cfg_PUSHOVER_TOKEN" placeholder="ai5geg5yvna49782q7i4dekwbrkxqy">
-        <label>User Key:</label> <input type="text" id="cfg_PUSHOVER_USER" placeholder="uu1314uwj9uc48p9cg7ajhuwx69bk6">
+        <label>App Token:</label> <input type="text" id="cfg_PUSHOVER_TOKEN">
+        <label>User Key:</label> <input type="text" id="cfg_PUSHOVER_USER">
         
-        <!-- Weather -->
         <h4>Wetter-Integration (Optional)</h4>
-        <label>FOSHKplugin API-URL (leer = inaktiv):</label> <input type="text" id="cfg_FOSHK_URL" placeholder="http://192.168.x.x:1080/api/get_weather">
+        <label>FOSHKplugin API-URL:</label> <input type="text" id="cfg_FOSHK_URL" placeholder="http://192.168.x.x:1080/api/get_weather">
 
-        <!-- System -->
         <h4>System</h4>
         <label>Datenbank-Pfad:</label> <input type="text" id="cfg_DB_FILE">
     </div>
@@ -282,7 +217,6 @@
     <span id="cfgStatus" style="margin-left: 15px; color: #81c784; font-weight: bold; display: none;">Erfolgreich gespeichert!</span>
   </div>
 
-  <!-- Leaflet JS -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
     const MY_CALL = "{{ my_call }}";
@@ -298,40 +232,27 @@
       const input = document.getElementById('text');
       const remaining = 180 - input.value.length;
       document.getElementById('charCount').innerText = remaining;
-      
-      if (remaining <= 20) {
-        document.getElementById('charCount').style.color = '#e57373';
-      } else {
-        document.getElementById('charCount').style.color = '#888';
-      }
+      if (remaining <= 20) { document.getElementById('charCount').style.color = '#e57373'; } 
+      else { document.getElementById('charCount').style.color = '#888'; }
     }
 
     function toggleTheme() {
       document.body.classList.toggle('light-mode');
-      if (document.body.classList.contains('light-mode')) {
-        localStorage.setItem('theme', 'light');
-      } else {
-        localStorage.setItem('theme', 'dark');
-      }
+      if (document.body.classList.contains('light-mode')) { localStorage.setItem('theme', 'light'); } 
+      else { localStorage.setItem('theme', 'dark'); }
     }
 
     function toggleMonitorPanel() {
       const panel = document.getElementById('monPanel');
       const btn = document.getElementById('btnMon');
-      if (panel.style.display === 'none') {
-        panel.style.display = 'block';
-        btn.classList.add('active');
-      } else {
-        panel.style.display = 'none';
-        btn.classList.remove('active');
-      }
+      if (panel.style.display === 'none') { panel.style.display = 'block'; btn.classList.add('active'); } 
+      else { panel.style.display = 'none'; btn.classList.remove('active'); }
     }
 
     function switchView(view) {
       document.getElementById('dashView').style.display = 'none';
       document.getElementById('mapView').style.display = 'none';
       document.getElementById('settingsView').style.display = 'none';
-      
       document.getElementById('btnDash').classList.remove('active');
       document.getElementById('btnMap').classList.remove('active');
       document.getElementById('btnSettings').classList.remove('active');
@@ -350,7 +271,6 @@
       }
     }
 
-    // Config Funktionen
     async function loadConfig() {
       try {
         const res = await fetch('/api/config');
@@ -369,9 +289,15 @@
         document.getElementById('cfg_PUSHOVER_TOKEN').value = data.Pushover.TOKEN;
         document.getElementById('cfg_PUSHOVER_USER').value = data.Pushover.USER;
         
-        document.getElementById('cfg_DB_FILE').value = data.Database.DB_FILE;
-        
         document.getElementById('cfg_FOSHK_URL').value = data.Weather.FOSHK_URL || "";
+        document.getElementById('cfg_DB_FILE').value = data.Database.DB_FILE;
+
+        document.getElementById('cfg_APRS_ENABLE').value = data.APRS.ENABLE === "True" ? "True" : "False";
+        document.getElementById('cfg_APRS_SERVER').value = data.APRS.SERVER;
+        document.getElementById('cfg_APRS_PORT').value = data.APRS.PORT;
+        document.getElementById('cfg_APRS_PASSCODE').value = data.APRS.PASSCODE;
+        document.getElementById('cfg_APRS_SYM_OWN').value = data.APRS.SYM_OWN;
+        document.getElementById('cfg_APRS_SYM_REMOTE').value = data.APRS.SYM_REMOTE;
       } catch (e) {
         console.error("Fehler beim Laden der Konfiguration:", e);
       }
@@ -392,9 +318,15 @@
         PUSHOVER_TOKEN: document.getElementById('cfg_PUSHOVER_TOKEN').value,
         PUSHOVER_USER: document.getElementById('cfg_PUSHOVER_USER').value,
         
+        FOSHK_URL: document.getElementById('cfg_FOSHK_URL').value,
         DB_FILE: document.getElementById('cfg_DB_FILE').value,
-        
-        FOSHK_URL: document.getElementById('cfg_FOSHK_URL').value
+
+        APRS_ENABLE: document.getElementById('cfg_APRS_ENABLE').value,
+        APRS_SERVER: document.getElementById('cfg_APRS_SERVER').value,
+        APRS_PORT: document.getElementById('cfg_APRS_PORT').value,
+        APRS_PASSCODE: document.getElementById('cfg_APRS_PASSCODE').value,
+        APRS_SYM_OWN: document.getElementById('cfg_APRS_SYM_OWN').value,
+        APRS_SYM_REMOTE: document.getElementById('cfg_APRS_SYM_REMOTE').value
       };
 
       try {
@@ -408,7 +340,6 @@
           const status = document.getElementById('cfgStatus');
           status.style.display = 'inline';
           setTimeout(() => status.style.display = 'none', 3000);
-          
           setTimeout(() => location.reload(), 1500);
         }
       } catch (e) {
@@ -419,11 +350,7 @@
     function initMap() {
       if (!map) {
         map = L.map('map').setView([50.816, 8.093], 12);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          maxZoom: 18,
-          attribution: '&copy; OpenStreetMap'
-        }).addTo(map);
-
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '&copy; OpenStreetMap' }).addTo(map);
         linesLayer = L.layerGroup().addTo(map);
         markersLayer = L.layerGroup().addTo(map);
       }
@@ -447,9 +374,7 @@
     function mentionCall(call) {
       const cleanCall = call.split(',')[0].trim();
       const input = document.getElementById('text');
-      if (input.value.length > 0 && !input.value.endsWith(' ')) {
-        input.value += ' ';
-      }
+      if (input.value.length > 0 && !input.value.endsWith(' ')) { input.value += ' '; }
       input.value += `@${cleanCall} `;
       input.focus();
       updateCharCount();
@@ -459,16 +384,11 @@
       if (!timestampStr) return '';
       const parts = timestampStr.split(' ');
       if (parts.length < 2) return timestampStr;
-      
       const datePart = parts[0];
       const timePart = parts[1];
       const today = new Date().toISOString().slice(0, 10);
-      if (datePart === today) {
-        return timePart;
-      } else {
-        const d = datePart.split('-');
-        return `${d[2]}.${d[1]}. ${timePart.slice(0, 5)}`;
-      }
+      if (datePart === today) { return timePart; } 
+      else { const d = datePart.split('-'); return `${d[2]}.${d[1]}. ${timePart.slice(0, 5)}`; }
     }
 
     function renderMessages() {
@@ -514,25 +434,20 @@
         container.innerHTML = '<div style="color:#777; font-size:0.9em;">Noch keine direkten HF-Pakete empfangen...</div>';
         return;
       }
-
       const now = new Date();
-
       container.innerHTML = directNodes.map(n => {
         const parts = (n.last || '').split(' ');
         const dateStr = parts[0] || '-';
         const timeStr = parts[1] || '-';
         const rssiVal = Math.round(Number(n.rssi) || 0);
         const snrVal = Math.round(Number(n.snr) || 0);
-        
         const distVal = (n.dist !== undefined && n.dist !== null && Number(n.dist) >= 0) ? Number(n.dist).toFixed(1) : '-';
         const nbVal = n.neighbours || 0;
 
         let staleClass = '';
         if (n.last) {
             const lastDate = new Date(n.last.replace(' ', 'T'));
-            if ((now - lastDate) > 10800000) {
-                staleClass = 'stale-node';
-            }
+            if ((now - lastDate) > 10800000) { staleClass = 'stale-node'; }
         }
 
         return `
@@ -558,17 +473,11 @@
 
     async function clearHeard() {
       if (!confirm('Heard-Nodes-Liste zurücksetzen?')) return;
-      try {
-        await fetch('/api/clear_heard', { method: 'POST' });
-        updateData();
-      } catch(e) {
-        console.error(e);
-      }
+      try { await fetch('/api/clear_heard', { method: 'POST' }); updateData(); } catch(e) {}
     }
 
     function renderMap(nodes, links) {
       if (!map || !markersLayer || !linesLayer) return;
-
       const nodeMap = {};
       const activeCalls = new Set();
       let locatedCount = 0;
@@ -584,9 +493,7 @@
           const isMe = n.call.startsWith(MY_CALL);
           const popupHtml = `
             <div>
-              <div class="popup-call" title="Als DM setzen" onclick="selectCall('${n.call}')">
-                📻 ${n.call}
-              </div>
+              <div class="popup-call" title="Als DM setzen" onclick="selectCall('${n.call}')">📻 ${n.call}</div>
               <span class="mention-btn" title="Im Text erwähnen (@)" onclick="mentionCall('${n.call}')">@</span>
             </div>
             <div style="font-size: 0.85em; margin-top: 4px; line-height: 1.4;">
@@ -599,28 +506,11 @@
           if (existingMarkers[n.call]) {
             const m = existingMarkers[n.call];
             m.setLatLng([lat, lon]);
-            if (m.getPopup()) {
-              m.getPopup().setContent(popupHtml);
-            }
+            if (m.getPopup()) { m.getPopup().setContent(popupHtml); }
           } else {
-            const marker = L.circleMarker([lat, lon], {
-              radius: isMe ? 9 : 7,
-              fillColor: isMe ? '#ff3d00' : '#0091ea',
-              color: '#ffffff',
-              weight: 2,
-              opacity: 1,
-              fillOpacity: 0.9
-            });
-            
+            const marker = L.circleMarker([lat, lon], { radius: isMe ? 9 : 7, fillColor: isMe ? '#ff3d00' : '#0091ea', color: '#ffffff', weight: 2, opacity: 1, fillOpacity: 0.9 });
             marker.bindPopup(popupHtml);
-            
-            marker.bindTooltip(n.call, {
-              permanent: true,
-              direction: 'right',
-              offset: [10, 0],
-              className: 'marker-label'
-            });
-
+            marker.bindTooltip(n.call, { permanent: true, direction: 'right', offset: [10, 0], className: 'marker-label' });
             markersLayer.addLayer(marker);
             existingMarkers[n.call] = marker;
           }
@@ -628,10 +518,7 @@
       });
 
       for (const call in existingMarkers) {
-        if (!activeCalls.has(call)) {
-          markersLayer.removeLayer(existingMarkers[call]);
-          delete existingMarkers[call];
-        }
+        if (!activeCalls.has(call)) { markersLayer.removeLayer(existingMarkers[call]); delete existingMarkers[call]; }
       }
 
       const activeLinkKeys = new Set();
@@ -647,7 +534,6 @@
 
           const isMyLink = l.from.startsWith(MY_CALL) || l.to.startsWith(MY_CALL);
           const lineColor = isMyLink ? '#ffb300' : '#00e5ff';
-          
           const distKm = (map.distance(p1, p2) / 1000).toFixed(1);
           const tooltipHtml = `<b>${l.from} ↔ ${l.to}</b><br><span style="color:${lineColor}; font-weight:bold;">${distKm} km</span>`;
 
@@ -655,26 +541,13 @@
             existingLines[pairKey].line.setLatLngs([p1, p2]);
             existingLines[pairKey].shadow.setLatLngs([p1, p2]);
             existingLines[pairKey].line.setTooltipContent(tooltipHtml);
-            
             existingLines[pairKey].line.setStyle({ color: lineColor, weight: isMyLink ? 4.5 : 3.5 });
           } else {
-            const shadowLine = L.polyline([p1, p2], {
-              color: '#111111',
-              weight: 6,
-              opacity: 0.5
-            });
+            const shadowLine = L.polyline([p1, p2], { color: '#111111', weight: 6, opacity: 0.5 });
             linesLayer.addLayer(shadowLine);
-
-            const line = L.polyline([p1, p2], {
-              color: lineColor,
-              weight: isMyLink ? 4.5 : 3.5,
-              opacity: 0.95,
-              dashArray: '8, 6'
-            });
-            
+            const line = L.polyline([p1, p2], { color: lineColor, weight: isMyLink ? 4.5 : 3.5, opacity: 0.95, dashArray: '8, 6' });
             line.bindTooltip(tooltipHtml, { sticky: true, className: 'line-tooltip' });
             linesLayer.addLayer(line);
-
             existingLines[pairKey] = { line: line, shadow: shadowLine };
           }
         }
@@ -689,16 +562,11 @@
       }
 
       const selectedHours = document.getElementById('linkHours').value;
-      document.getElementById('mapStatus').innerText = 
-        `${locatedCount} Nodes mit Position | ${drawnLinks} Pfad(e) in ${selectedHours}h`;
+      document.getElementById('mapStatus').innerText = `${locatedCount} Nodes mit Position | ${drawnLinks} Pfad(e) in ${selectedHours}h`;
     }
 
     async function updateData() {
-      if (document.getElementById('settingsView').style.display === 'block') {
-        setTimeout(updateData, 3000);
-        return;
-      }
-      
+      if (document.getElementById('settingsView').style.display === 'block') { setTimeout(updateData, 3000); return; }
       try {
         const hoursEl = document.getElementById('linkHours');
         const hours = hoursEl ? hoursEl.value : '24';
@@ -712,43 +580,30 @@
           const rawUdp = data.raw_udp || [];
           const udpConsole = document.getElementById('udpConsole');
           if (rawUdp.length === 0) {
-            udpConsole.innerHTML = '<span style="color:#777;">Noch keine UDP-Pakete seit Dienststart empfangen...</span>';
+            udpConsole.innerHTML = '<span style="color:#777;">Noch keine UDP-Pakete...</span>';
           } else {
             udpConsole.innerHTML = rawUdp.map(p => {
-              const cls = p.ip.startsWith('TX') ? 'udp-tx' : 'udp-rx';
+              let cls = 'udp-rx';
+              if (p.ip.startsWith('TX')) cls = 'udp-tx';
+              else if (p.ip.startsWith('APRS')) cls = 'udp-aprs';
               return `<div class="udp-line"><span style="color:#888;">[${p.time}]</span> <b class="${cls}">${p.ip}:</b> ${p.raw}</div>`;
             }).join('');
           }
-
-          if (map) {
-            renderMap(data.nodes || [], data.links || []);
-          }
+          if (map) { renderMap(data.nodes || [], data.links || []); }
         }
-      } catch(e) {
-        console.error("Update Fehler:", e);
-      } finally {
-        setTimeout(updateData, 3000);
-      }
+      } catch(e) {} finally { setTimeout(updateData, 3000); }
     }
 
     async function sendMsg() {
       const dst = document.getElementById('dst').value;
       const text = document.getElementById('text').value;
       if (!text) return;
-
       try {
-        await fetch('/api/send', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({dst, text})
-        });
-        
+        await fetch('/api/send', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({dst, text}) });
         document.getElementById('text').value = '';
         updateCharCount();
         updateData();
-      } catch(e) {
-        console.error("Sende-Fehler:", e);
-      }
+      } catch(e) {}
     }
 
     async function fetchWeather() {
@@ -760,13 +615,8 @@
           input.value = data.text;
           updateCharCount();
           input.focus();
-        } else {
-          alert("Fehler beim Abrufen der Wetterdaten:\n" + data.message);
-        }
-      } catch(e) {
-        console.error("Wetter-Fehler:", e);
-        alert("Fehler bei der Verbindung zum Backend.");
-      }
+        } else { alert("Fehler beim Abrufen der Wetterdaten:\n" + data.message); }
+      } catch(e) { alert("Fehler bei der Verbindung zum Backend."); }
     }
 
     updateData();
