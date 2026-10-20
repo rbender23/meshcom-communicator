@@ -469,7 +469,7 @@ def udp_listener():
 @app.route("/")
 def index():
     wx_enabled = bool(FOSHK_URL.strip())
-    resp = make_response(render_template("index.html", my_call=MY_CALL, default_tg=TARGET_TG, ui_tgs=UI_TGS, wx_enabled=wx_enabled))
+    resp = make_response(render_template("index.html", my_call=MY_CALL, default_tg=TARGET_TG, ui_tgs=UI_TGS, wx_enabled=wx_enabled, aprs_enabled=APRS_ENABLE))
     resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     return resp
 
