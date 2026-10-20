@@ -176,13 +176,17 @@
   <div class="box" style="margin-bottom: 15px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
     <input type="text" id="dst" value="{{ default_tg }}" style="width: 130px; margin: 0;" placeholder="Ziel (z.B. 26257)">
     
-    <!-- Modifiziertes Textfeld mit flexibler Breite und eingebettetem Zeichenzähler -->
     <div style="position: relative; flex-grow: 1; max-width: 600px; min-width: 200px;">
       <input type="text" id="text" style="width: 100%; box-sizing: border-box; padding-right: 45px; margin: 0;" maxlength="180" placeholder="Nachricht..." onkeydown="if(event.key==='Enter') sendMsg()">
       <span id="charCount" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-size: 0.8em; color: #888; pointer-events: none;">180</span>
     </div>
     
     <button style="margin: 0;" onclick="sendMsg()">Senden</button>
+    
+    <!-- Button wird nur gerendert, wenn FOSHK_URL in den Einstellungen gesetzt ist -->
+    {% if wx_enabled %}
+    <button style="margin: 0; background: #00897b;" onclick="fetchWeather()" title="Lokale Wetterdaten abrufen">⛅</button>
+    {% endif %}
   </div>
 
   <!-- DASHBOARD ANSICHT -->
@@ -244,7 +248,7 @@
   <!-- EINSTELLUNGEN ANSICHT -->
   <div id="settingsView" class="box" style="display: none;">
     <h3 style="margin: 0 0 10px 0;">⚙️ Konfiguration (app.ini)</h3>
-    <p style="font-size: 0.85em; color: #aaa; margin-top: 0;">Hinweis: Änderungen an Ports oder am Datenbankpfad werden erst nach einem Neustart des Hintergrunddienstes aktiv.</p>
+    <p style="font-size: 0.85em; color: #aaa; margin-top: 0;">Hinweis: Änderungen an Pfaden oder URLs werden teilweise erst nach einem Neustart aktiv.</p>
     
     <div class="settings-grid">
         <!-- Network -->
@@ -266,6 +270,10 @@
         <label>App Token:</label> <input type="text" id="cfg_PUSHOVER_TOKEN" placeholder="ai5geg5yvna49782q7i4dekwbrkxqy">
         <label>User Key:</label> <input type="text" id="cfg_PUSHOVER_USER" placeholder="uu1314uwj9uc48p9cg7ajhuwx69bk6">
         
+        <!-- Weather -->
+        <h4>Wetter-Integration (Optional)</h4>
+        <label>FOSHKplugin API-URL (leer = inaktiv):</label> <input type="text" id="cfg_FOSHK_URL" placeholder="http://192.168.x.x:1080/api/get_weather">
+
         <!-- System -->
         <h4>System</h4>
         <label>Datenbank-Pfad:</label> <input type="text" id="cfg_DB_FILE">
@@ -284,21 +292,19 @@
     let markersLayer = null;
     let linesLayer = null;
 
-    const existingMarkers = {};
-    const existingLines = {};
+    document.getElementById('text').addEventListener('input', updateCharCount);
 
-    // Zeichenzähler für das Textfeld aktualisieren
-    document.getElementById('text').addEventListener('input', function() {
-      const remaining = 180 - this.value.length;
+    function updateCharCount() {
+      const input = document.getElementById('text');
+      const remaining = 180 - input.value.length;
       document.getElementById('charCount').innerText = remaining;
       
-      // Optisches Feedback wenn es knapp wird
       if (remaining <= 20) {
         document.getElementById('charCount').style.color = '#e57373';
       } else {
         document.getElementById('charCount').style.color = '#888';
       }
-    });
+    }
 
     function toggleTheme() {
       document.body.classList.toggle('light-mode');
@@ -364,6 +370,8 @@
         document.getElementById('cfg_PUSHOVER_USER').value = data.Pushover.USER;
         
         document.getElementById('cfg_DB_FILE').value = data.Database.DB_FILE;
+        
+        document.getElementById('cfg_FOSHK_URL').value = data.Weather.FOSHK_URL || "";
       } catch (e) {
         console.error("Fehler beim Laden der Konfiguration:", e);
       }
@@ -384,7 +392,9 @@
         PUSHOVER_TOKEN: document.getElementById('cfg_PUSHOVER_TOKEN').value,
         PUSHOVER_USER: document.getElementById('cfg_PUSHOVER_USER').value,
         
-        DB_FILE: document.getElementById('cfg_DB_FILE').value
+        DB_FILE: document.getElementById('cfg_DB_FILE').value,
+        
+        FOSHK_URL: document.getElementById('cfg_FOSHK_URL').value
       };
 
       try {
@@ -442,10 +452,7 @@
       }
       input.value += `@${cleanCall} `;
       input.focus();
-      
-      // Update Zeichenzähler nach dem Einfügen
-      const remaining = 180 - input.value.length;
-      document.getElementById('charCount').innerText = remaining;
+      updateCharCount();
     }
 
     function formatTime(timestampStr) {
@@ -737,11 +744,28 @@
         });
         
         document.getElementById('text').value = '';
-        document.getElementById('charCount').innerText = '180';
-        document.getElementById('charCount').style.color = '#888';
+        updateCharCount();
         updateData();
       } catch(e) {
         console.error("Sende-Fehler:", e);
+      }
+    }
+
+    async function fetchWeather() {
+      try {
+        const res = await fetch('/api/get_wx');
+        const data = await res.json();
+        if (data.status === 'ok') {
+          const input = document.getElementById('text');
+          input.value = data.text;
+          updateCharCount();
+          input.focus();
+        } else {
+          alert("Fehler beim Abrufen der Wetterdaten:\n" + data.message);
+        }
+      } catch(e) {
+        console.error("Wetter-Fehler:", e);
+        alert("Fehler bei der Verbindung zum Backend.");
       }
     }
 

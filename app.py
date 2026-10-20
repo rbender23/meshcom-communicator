@@ -19,7 +19,7 @@ config = configparser.ConfigParser()
 
 if not os.path.exists(ini_path):
     print(f"[Warnung] Konfigurationsdatei '{ini_path}' nicht gefunden. Es werden Standardwerte verwendet.")
-    config.read_dict({'Network': {}, 'Radio': {}, 'Pushover': {}, 'Database': {}})
+    config.read_dict({'Network': {}, 'Radio': {}, 'Pushover': {}, 'Database': {}, 'Weather': {}})
 else:
     try:
         config.read(ini_path)
@@ -44,6 +44,8 @@ PUSHOVER_USER = config.get('Pushover', 'USER', fallback="")
 
 raw_db_path = config.get('Database', 'DB_FILE', fallback="~/meshcom-communicator/meshcom.db")
 DB_FILE = os.path.expanduser(raw_db_path)
+
+FOSHK_URL = config.get('Weather', 'FOSHK_URL', fallback="")
 
 # --- ENDE KONFIGURATION ---
 
@@ -447,7 +449,9 @@ def udp_listener():
 
 @app.route("/")
 def index():
-    resp = make_response(render_template("index.html", my_call=MY_CALL, default_tg=TARGET_TG, ui_tgs=UI_TGS))
+    # Wir übergeben HTML nun das Flag, ob eine Wetter-URL existiert
+    wx_enabled = bool(FOSHK_URL.strip())
+    resp = make_response(render_template("index.html", my_call=MY_CALL, default_tg=TARGET_TG, ui_tgs=UI_TGS, wx_enabled=wx_enabled))
     resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     return resp
 
@@ -473,6 +477,9 @@ def get_config():
         },
         "Database": {
             "DB_FILE": raw_db_path
+        },
+        "Weather": {
+            "FOSHK_URL": FOSHK_URL
         }
     })
 
@@ -482,6 +489,7 @@ def save_config():
     global MY_CALL, LOCAL_NODE_CALL, TARGET_TG, UI_TGS
     global PUSHOVER_TOKEN, PUSHOVER_USER
     global raw_db_path, DB_FILE
+    global FOSHK_URL
 
     data = request.json or {}
     
@@ -489,6 +497,7 @@ def save_config():
     if not config.has_section('Radio'): config.add_section('Radio')
     if not config.has_section('Pushover'): config.add_section('Pushover')
     if not config.has_section('Database'): config.add_section('Database')
+    if not config.has_section('Weather'): config.add_section('Weather')
 
     config.set('Network', 'NODE_IP', str(data.get('NODE_IP', NODE_IP)))
     config.set('Network', 'UDP_BIND_IP', str(data.get('UDP_BIND_IP', UDP_BIND_IP)))
@@ -504,6 +513,8 @@ def save_config():
     config.set('Pushover', 'USER', str(data.get('PUSHOVER_USER', PUSHOVER_USER)))
 
     config.set('Database', 'DB_FILE', str(data.get('DB_FILE', raw_db_path)))
+    
+    config.set('Weather', 'FOSHK_URL', str(data.get('FOSHK_URL', FOSHK_URL)))
 
     try:
         with open(ini_path, 'w') as configfile:
@@ -523,6 +534,8 @@ def save_config():
 
     PUSHOVER_TOKEN = str(data.get('PUSHOVER_TOKEN', PUSHOVER_TOKEN))
     PUSHOVER_USER = str(data.get('PUSHOVER_USER', PUSHOVER_USER))
+    
+    FOSHK_URL = str(data.get('FOSHK_URL', FOSHK_URL))
 
     return jsonify({"status": "ok"})
 
@@ -571,7 +584,6 @@ def get_data():
                 "snr": snr, "rssi": rssi, "dist": calc_dist, "neighbours": final_nb, "fw": fw
             })
 
-        # Optimierte Karte: Kombiniert Zeitstempel aus 'mheard' (Absender) und 'direct_heard' (Relais)
         c.execute("""SELECT m.callsign, m.path, 
                             MAX(m.last_seen, COALESCE(d.last_seen, '')) as recent_time,
                             m.hw, m.snr, m.rssi, m.distance, m.lat, m.lon, m.alt, m.fw 
@@ -651,8 +663,41 @@ def send_msg():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+@app.route("/api/get_wx", methods=["GET"])
+def get_wx():
+    if not FOSHK_URL:
+        return jsonify({"status": "error", "message": "Keine Wetter-URL konfiguriert."}), 400
+
+    def get_val(raw_text, key, decimals=1):
+        match = re.search(rf"\b{key}\b[^\d-]*([-\d.]+)", raw_text, re.IGNORECASE)
+        if match:
+            try:
+                return f"{float(match.group(1)):.{decimals}f}"
+            except (ValueError, TypeError):
+                pass
+        return "--"
+
+    try:
+        req = urllib.request.Request(FOSHK_URL)
+        with urllib.request.urlopen(req, timeout=5) as response:
+            raw_text = response.read().decode('utf-8')
+
+        temp = get_val(raw_text, "tempc", 1)
+        hum = get_val(raw_text, "humidity", 0)
+        wind = get_val(raw_text, "windspeedkmh", 1)
+        press = get_val(raw_text, "baromrelhpa", 1)
+        gust = get_val(raw_text, "windgustkmh", 1)
+        rain_day = get_val(raw_text, "dailyrainmm", 1)
+        rain_week = get_val(raw_text, "weeklyrainmm", 1)
+
+        wx_text = f"WX Wilgersdorf (https://wetter.r-bender.de) 🌡️{temp}°C 💧{hum}% 💨{wind}km/h (Böen {gust}) 📉{press}hPa ☔Tag:{rain_day}mm/Wo:{rain_week}mm"
+        
+        return jsonify({"status": "ok", "text": wx_text})
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"Fehler beim Abruf: {str(e)}"}), 500
+
+
 if __name__ == "__main__":
     init_db()
     threading.Thread(target=udp_listener, daemon=True).start()
     app.run(host=UDP_BIND_IP, port=WEB_PORT, debug=False)
-
