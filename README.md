@@ -20,7 +20,7 @@ Ein interaktives Web-Dashboard und Backend für [MeshCom](https://icssw.org/mesh
 
 ## Screenshots
 ![Ansicht des Dashboards](images/mcc-1.jpg)
-![Ansicht der Karte](images/mcc2-1.jpg)
+![Ansicht der Karte](images/mcc-2.jpg)
 ![Ansicht der Einstellungsmöglichkeiten](images/mcc-3.jpg)
 
 ## Installation
