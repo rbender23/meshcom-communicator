@@ -20,11 +20,12 @@
     .tab-btn { background: #2a2a2a; border: 1px solid #444; font-size: 0.85em; padding: 5px 12px; border-radius: 15px; cursor: pointer; color: #bbb; }
     .tab-btn.active { background: #0288d1; color: #fff; border-color: #0288d1; }
     
-    /* APRS Ampel Styling */
     .aprs-indicator { display: inline-flex; align-items: center; gap: 6px; font-size: 0.85em; background: #2a2a2a; padding: 4px 10px; border-radius: 12px; border: 1px solid #444; color: #ccc; cursor: default; }
     .ampel { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
     .ampel.green { background-color: #00e676; box-shadow: 0 0 6px #00e676; }
     .ampel.red { background-color: #ff5252; box-shadow: 0 0 6px #ff5252; }
+
+    .wx-header-bar { display: none; background: #1e1e1e; color: #bbb; padding: 8px 15px; border-radius: 6px; font-size: 0.95em; margin-bottom: 15px; border: 1px solid #333; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.4); }
 
     .udp-console { background: #0d0d0d; border: 1px solid #333; border-radius: 6px; padding: 8px; margin-top: 8px; max-height: 220px; overflow-y: auto; font-family: monospace; font-size: 0.82em; color: #b0bec5; }
     .udp-line { border-bottom: 1px dashed #222; padding: 3px 0; word-break: break-all; }
@@ -74,6 +75,7 @@
     body.light-mode .tab-btn { background: #e0e0e0; color: #333; border: 1px solid #ccc; }
     body.light-mode .tab-btn.active { background: #0288d1; color: #fff; border-color: #0288d1; }
     body.light-mode .aprs-indicator { background: #e0e0e0; border-color: #ccc; color: #333; }
+    body.light-mode .wx-header-bar { background: #ffffff; color: #333; border: 1px solid #ccc; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
     body.light-mode .udp-console { background: #f8f9fa; border-color: #ddd; color: #333; }
     body.light-mode .udp-line { border-bottom: 1px dashed #ddd; }
     body.light-mode .udp-tx { color: #d84315; }
@@ -105,15 +107,12 @@
 
   <div class="header-bar">
     <div style="display: flex; align-items: center; gap: 15px; flex-wrap: wrap;">
-      <h2 style="margin: 0;">📡 MeshCom Communicator ({{ my_call }})</h2>
-      
-      <!-- NEU: APRS Ampel -->
+      <h2 style="margin: 0;"><a href="https://github.com/rbender23/meshcom-communicator" target="_blank" style="text-decoration: none; cursor: pointer;" title="Quellcode auf GitHub">📡</a> MeshCom Communicator ({{ my_call }})</h2>
       <div class="aprs-indicator" title="APRS-IS Gateway Status (Aktivierung in den Einstellungen)">
         <span class="ampel {% if aprs_enabled %}green{% else %}red{% endif %}"></span>
         APRS-IS
       </div>
     </div>
-
     <div class="tabs" style="margin: 0;">
       <button class="tab-btn active" id="btnDash" onclick="switchView('dashboard')">📋 Dashboard</button>
       <button class="tab-btn" id="btnMap" onclick="switchView('map')">🗺️ Mesh-Karte</button>
@@ -122,6 +121,8 @@
       <button class="tab-btn" onclick="toggleTheme()" title="Theme umschalten" style="margin-left: 15px; font-size: 1em;">🌓</button>
     </div>
   </div>
+
+  <div id="wxHeaderBar" class="wx-header-bar"></div>
 
   <div id="monPanel" class="box" style="display: none; margin-bottom: 15px; border: 1px solid #0288d1;">
     <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
@@ -161,7 +162,6 @@
         <tbody id="msgBody"></tbody>
       </table>
     </div>
-
     <div class="box">
       <div style="display: flex; justify-content: space-between; align-items: center;">
         <h3 style="margin: 0;">📻 Heard Nodes</h3>
@@ -209,22 +209,27 @@
         <label>UI Filter TGs (kommagetrennt):</label> <input type="text" id="cfg_UI_TGS">
 
         <h4>APRS-IS Gateway</h4>
-        <label>APRS Upload aktivieren:</label> 
+        <label>APRS Upload (Gateway):</label> 
         <select id="cfg_APRS_ENABLE">
           <option value="False">Deaktiviert</option>
           <option value="True">Aktiviert</option>
         </select>
+        <label>APRS Wetter (Header-Bar):</label> 
+        <select id="cfg_APRS_WX_ENABLE">
+          <option value="False">Deaktiviert</option>
+          <option value="True">Aktiviert (lokales Wetter via APRS-IS)</option>
+        </select>
         <label>APRS Server:</label> <input type="text" id="cfg_APRS_SERVER" placeholder="euro.aprs2.net">
         <label>APRS Port:</label> <input type="text" id="cfg_APRS_PORT" placeholder="14580">
-        <label>APRS Passcode:</label> <input type="text" id="cfg_APRS_PASSCODE" placeholder="Passcode (z.B. für DO5RBB)">
-        <label>Symbol eigener Node:</label> <input type="text" id="cfg_APRS_SYM_OWN" placeholder="\I (Gateway)">
-        <label>Symbol andere Nodes:</label> <input type="text" id="cfg_APRS_SYM_REMOTE" placeholder="/# (Digipeater)">
+        <label>APRS Passcode:</label> <input type="text" id="cfg_APRS_PASSCODE">
+        <label>Symbol eigener Node:</label> <input type="text" id="cfg_APRS_SYM_OWN">
+        <label>Symbol andere Nodes:</label> <input type="text" id="cfg_APRS_SYM_REMOTE">
 
         <h4>Pushover Alarme</h4>
         <label>App Token:</label> <input type="text" id="cfg_PUSHOVER_TOKEN">
         <label>User Key:</label> <input type="text" id="cfg_PUSHOVER_USER">
         
-        <h4>Wetter-Integration (Optional)</h4>
+        <h4>Wetter-Integration (Lokales Setup, Optional)</h4>
         <label>FOSHKplugin API-URL:</label> <input type="text" id="cfg_FOSHK_URL" placeholder="http://192.168.x.x:1080/api/get_weather">
 
         <h4>System</h4>
@@ -242,6 +247,10 @@
     let map = null;
     let markersLayer = null;
     let linesLayer = null;
+    
+    // HIER HABEN DIE BEIDEN VARIABLEN GEFEHLT!
+    let existingMarkers = {};
+    let existingLines = {};
 
     document.getElementById('text').addEventListener('input', updateCharCount);
 
@@ -297,27 +306,22 @@
         document.getElementById('cfg_UDP_BIND_IP').value = data.Network.UDP_BIND_IP;
         document.getElementById('cfg_UDP_PORT').value = data.Network.UDP_PORT;
         document.getElementById('cfg_WEB_PORT').value = data.Network.WEB_PORT;
-        
         document.getElementById('cfg_MY_CALL').value = data.Radio.MY_CALL;
         document.getElementById('cfg_LOCAL_NODE_CALL').value = data.Radio.LOCAL_NODE_CALL;
         document.getElementById('cfg_TARGET_TG').value = data.Radio.TARGET_TG;
         document.getElementById('cfg_UI_TGS').value = data.Radio.UI_TGS;
-        
         document.getElementById('cfg_PUSHOVER_TOKEN').value = data.Pushover.TOKEN;
         document.getElementById('cfg_PUSHOVER_USER').value = data.Pushover.USER;
-        
         document.getElementById('cfg_FOSHK_URL').value = data.Weather.FOSHK_URL || "";
         document.getElementById('cfg_DB_FILE').value = data.Database.DB_FILE;
-
         document.getElementById('cfg_APRS_ENABLE').value = data.APRS.ENABLE === "True" ? "True" : "False";
+        document.getElementById('cfg_APRS_WX_ENABLE').value = data.APRS.WX_ENABLE === "True" ? "True" : "False";
         document.getElementById('cfg_APRS_SERVER').value = data.APRS.SERVER;
         document.getElementById('cfg_APRS_PORT').value = data.APRS.PORT;
         document.getElementById('cfg_APRS_PASSCODE').value = data.APRS.PASSCODE;
         document.getElementById('cfg_APRS_SYM_OWN').value = data.APRS.SYM_OWN;
         document.getElementById('cfg_APRS_SYM_REMOTE').value = data.APRS.SYM_REMOTE;
-      } catch (e) {
-        console.error("Fehler beim Laden der Konfiguration:", e);
-      }
+      } catch (e) { console.error("Config Fehler:", e); }
     }
 
     async function saveConfig() {
@@ -326,42 +330,31 @@
         UDP_BIND_IP: document.getElementById('cfg_UDP_BIND_IP').value,
         UDP_PORT: document.getElementById('cfg_UDP_PORT').value,
         WEB_PORT: document.getElementById('cfg_WEB_PORT').value,
-        
         MY_CALL: document.getElementById('cfg_MY_CALL').value,
         LOCAL_NODE_CALL: document.getElementById('cfg_LOCAL_NODE_CALL').value,
         TARGET_TG: document.getElementById('cfg_TARGET_TG').value,
         UI_TGS: document.getElementById('cfg_UI_TGS').value,
-        
         PUSHOVER_TOKEN: document.getElementById('cfg_PUSHOVER_TOKEN').value,
         PUSHOVER_USER: document.getElementById('cfg_PUSHOVER_USER').value,
-        
         FOSHK_URL: document.getElementById('cfg_FOSHK_URL').value,
         DB_FILE: document.getElementById('cfg_DB_FILE').value,
-
         APRS_ENABLE: document.getElementById('cfg_APRS_ENABLE').value,
+        APRS_WX_ENABLE: document.getElementById('cfg_APRS_WX_ENABLE').value,
         APRS_SERVER: document.getElementById('cfg_APRS_SERVER').value,
         APRS_PORT: document.getElementById('cfg_APRS_PORT').value,
         APRS_PASSCODE: document.getElementById('cfg_APRS_PASSCODE').value,
         APRS_SYM_OWN: document.getElementById('cfg_APRS_SYM_OWN').value,
         APRS_SYM_REMOTE: document.getElementById('cfg_APRS_SYM_REMOTE').value
       };
-
       try {
-        const res = await fetch('/api/config', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify(payload)
-        });
-        
+        const res = await fetch('/api/config', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
         if (res.ok) {
           const status = document.getElementById('cfgStatus');
           status.style.display = 'inline';
           setTimeout(() => status.style.display = 'none', 3000);
           setTimeout(() => location.reload(), 1500);
         }
-      } catch (e) {
-        console.error("Fehler beim Speichern der Konfiguration:", e);
-      }
+      } catch (e) {}
     }
 
     function initMap() {
@@ -422,11 +415,9 @@
         let dstClass = 'tg';
         if (m.dst === '*') dstClass = 'broadcast';
         else if (m.dst.toUpperCase().startsWith('DO5RBB')) dstClass = 'dm';
-
         const parts = (m.src || '').split(',');
         const origin = parts[0].trim();
         const path = parts.length > 1 ? ',' + parts.slice(1).join(',') : '';
-
         return `
           <tr>
             <td class="time-col">${formatTime(m.time)}</td>
@@ -436,19 +427,15 @@
               <span class="path-text">${path}</span>
             </td>
             <td class="${dstClass}">${m.dst}</td>
-            <td>
-              ${m.text}
-              ${m.ack ? '<span style="color: #81c784; font-size: 0.95em; margin-left: 8px;" title="ACK empfangen">✔️</span>' : ''}
-            </td>
-          </tr>
-        `;
+            <td>${m.text}${m.ack ? '<span style="color: #81c784; font-size: 0.95em; margin-left: 8px;" title="ACK empfangen">✔️</span>' : ''}</td>
+          </tr>`;
       }).join('');
     }
 
     function renderHeardNodes(directNodes) {
       const container = document.getElementById('nodeBody');
       if (!directNodes || directNodes.length === 0) {
-        container.innerHTML = '<div style="color:#777; font-size:0.9em;">Noch keine direkten HF-Pakete empfangen...</div>';
+        container.innerHTML = '<div style="color:#777; font-size:0.9em;">Noch keine direkten HF-Pakete...</div>';
         return;
       }
       const now = new Date();
@@ -460,31 +447,24 @@
         const snrVal = Math.round(Number(n.snr) || 0);
         const distVal = (n.dist !== undefined && n.dist !== null && Number(n.dist) >= 0) ? Number(n.dist).toFixed(1) : '-';
         const nbVal = n.neighbours || 0;
-
         let staleClass = '';
         if (n.last) {
             const lastDate = new Date(n.last.replace(' ', 'T'));
             if ((now - lastDate) > 10800000) { staleClass = 'stale-node'; }
         }
-
         return `
           <div class="heard-card ${staleClass}">
             <div>
-              <div class="heard-call" title="Als DM setzen" onclick="selectCall('${n.call}')">${n.call}</div>
-              <span class="mention-btn" title="Im Text erwähnen (@)" onclick="mentionCall('${n.call}')">@</span>
+              <div class="heard-call" onclick="selectCall('${n.call}')">${n.call}</div>
+              <span class="mention-btn" onclick="mentionCall('${n.call}')">@</span>
             </div>
             <div class="heard-grid">
-              <div>Date: ${dateStr}</div>
-              <div>Time: ${timeStr}</div>
-              <div>RSSI: ${rssiVal} dBm</div>
-              <div>SNR: ${snrVal} dB</div>
-              <div>Hw: ${n.hw || '-'}</div>
-              <div>Dist: ${distVal} km</div>
-              <div>Neighbours: ${nbVal}</div>
-              <div>FW: ${n.fw || '-'}</div>
+              <div>Date: ${dateStr}</div><div>Time: ${timeStr}</div>
+              <div>RSSI: ${rssiVal} dBm</div><div>SNR: ${snrVal} dB</div>
+              <div>Hw: ${n.hw || '-'}</div><div>Dist: ${distVal} km</div>
+              <div>Neighbours: ${nbVal}</div><div>FW: ${n.fw || '-'}</div>
             </div>
-          </div>
-        `;
+          </div>`;
       }).join('');
     }
 
@@ -506,20 +486,15 @@
           nodeMap[n.call] = [lat, lon];
           activeCalls.add(n.call);
           locatedCount++;
-
           const isMe = n.call.startsWith(MY_CALL);
           const popupHtml = `
             <div>
-              <div class="popup-call" title="Als DM setzen" onclick="selectCall('${n.call}')">📻 ${n.call}</div>
-              <span class="mention-btn" title="Im Text erwähnen (@)" onclick="mentionCall('${n.call}')">@</span>
+              <div class="popup-call" onclick="selectCall('${n.call}')">📻 ${n.call}</div>
+              <span class="mention-btn" onclick="mentionCall('${n.call}')">@</span>
             </div>
             <div style="font-size: 0.85em; margin-top: 4px; line-height: 1.4;">
-              <b>Zuletzt:</b> ${n.last}<br>
-              <b>Signal:</b> ${n.snr} dB / ${n.rssi} dBm<br>
-              <b>Hardware:</b> ${n.hw} (FW: ${n.fw || '-'})
-            </div>
-          `;
-
+              <b>Zuletzt:</b> ${n.last}<br><b>Signal:</b> ${n.snr} dB / ${n.rssi} dBm<br><b>Hardware:</b> ${n.hw} (FW: ${n.fw || '-'})
+            </div>`;
           if (existingMarkers[n.call]) {
             const m = existingMarkers[n.call];
             m.setLatLng([lat, lon]);
@@ -533,14 +508,12 @@
           }
         }
       });
-
       for (const call in existingMarkers) {
         if (!activeCalls.has(call)) { markersLayer.removeLayer(existingMarkers[call]); delete existingMarkers[call]; }
       }
 
       const activeLinkKeys = new Set();
       let drawnLinks = 0;
-
       links.forEach(l => {
         const p1 = nodeMap[l.from];
         const p2 = nodeMap[l.to];
@@ -548,7 +521,6 @@
           drawnLinks++;
           const pairKey = [l.from, l.to].sort().join('--');
           activeLinkKeys.add(pairKey);
-
           const isMyLink = l.from.startsWith(MY_CALL) || l.to.startsWith(MY_CALL);
           const lineColor = isMyLink ? '#ffb300' : '#00e5ff';
           const distKm = (map.distance(p1, p2) / 1000).toFixed(1);
@@ -569,24 +541,16 @@
           }
         }
       });
-
       for (const key in existingLines) {
-        if (!activeLinkKeys.has(key)) {
-          linesLayer.removeLayer(existingLines[key].line);
-          linesLayer.removeLayer(existingLines[key].shadow);
-          delete existingLines[key];
-        }
+        if (!activeLinkKeys.has(key)) { linesLayer.removeLayer(existingLines[key].line); linesLayer.removeLayer(existingLines[key].shadow); delete existingLines[key]; }
       }
-
-      const selectedHours = document.getElementById('linkHours').value;
-      document.getElementById('mapStatus').innerText = `${locatedCount} Nodes mit Position | ${drawnLinks} Pfad(e) in ${selectedHours}h`;
+      document.getElementById('mapStatus').innerText = `${locatedCount} Nodes mit Position | ${drawnLinks} Pfad(e)`;
     }
 
     async function updateData() {
       if (document.getElementById('settingsView').style.display === 'block') { setTimeout(updateData, 3000); return; }
       try {
-        const hoursEl = document.getElementById('linkHours');
-        const hours = hoursEl ? hoursEl.value : '24';
+        const hours = document.getElementById('linkHours') ? document.getElementById('linkHours').value : '24';
         const res = await fetch(`/api/data?hours=${hours}&_nc=${Date.now()}`);
         if (res.ok) {
           const data = await res.json();
@@ -634,6 +598,30 @@
           input.focus();
         } else { alert("Fehler beim Abrufen der Wetterdaten:\n" + data.message); }
       } catch(e) { alert("Fehler bei der Verbindung zum Backend."); }
+    }
+
+    async function updateWxHeader() {
+      if (!{{ aprs_wx_enabled | lower }}) return;
+      try {
+        const res = await fetch('/api/wx_header');
+        const data = await res.json();
+        const bar = document.getElementById('wxHeaderBar');
+        
+        if (data.status === 'ok') {
+          bar.innerHTML = `<strong>WX (${data.call}, ${data.dist} km):</strong> &nbsp;🌡️${data.temp}°C &nbsp;|&nbsp; 📉${data.press} hPa &nbsp;|&nbsp; 💧${data.hum}% &nbsp;|&nbsp; 💨${data.wind} km/h &nbsp;|&nbsp; ☔${data.rain} mm <span style="font-size: 0.85em; opacity: 0.8;">(vor ${data.age_min} Min)</span>`;
+          bar.style.display = 'block';
+        } else if (data.status === 'empty') {
+          bar.innerHTML = `<span style="opacity: 0.7;">Suche APRS-Wetterstationen im 25km Umkreis... (Warte auf Daten)</span>`;
+          bar.style.display = 'block';
+        } else {
+          bar.style.display = 'none';
+        }
+      } catch(e) {}
+    }
+
+    if ({{ aprs_wx_enabled | lower }}) {
+      updateWxHeader();
+      setInterval(updateWxHeader, 60000);
     }
 
     updateData();

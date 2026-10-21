@@ -50,10 +50,11 @@ DB_FILE = os.path.expanduser(raw_db_path)
 
 # APRS-IS Konfiguration
 APRS_ENABLE = config.getboolean('APRS', 'ENABLE', fallback=False)
+APRS_WX_ENABLE = config.getboolean('APRS', 'WX_ENABLE', fallback=False)
 APRS_SERVER = config.get('APRS', 'SERVER', fallback="euro.aprs2.net")
 APRS_PORT = config.getint('APRS', 'PORT', fallback=14580)
 APRS_PASSCODE = config.get('APRS', 'PASSCODE', fallback="-1")
-APRS_SYM_OWN = config.get('APRS', 'SYM_OWN', fallback="\\I")
+APRS_SYM_OWN = config.get('APRS', 'SYM_OWN', fallback="/I")
 APRS_SYM_REMOTE = config.get('APRS', 'SYM_REMOTE', fallback="/#")
 
 # --- ENDE KONFIGURATION ---
@@ -70,7 +71,8 @@ HW_ID_MAP = {
 
 app = Flask(__name__)
 last_udp_packets = collections.deque(maxlen=30)
-aprs_upload_cache = {}  # Speichert den Zeitstempel des letzten Uploads pro Call
+aprs_upload_cache = {}
+aprs_wx_cache = {}
 
 
 def get_db_connection():
@@ -92,10 +94,8 @@ def init_db():
             dst TEXT,
             text TEXT
         )""")
-
         try: c.execute("ALTER TABLE messages ADD COLUMN ack INTEGER DEFAULT 0")
         except sqlite3.OperationalError: pass
-
         try: c.execute("ALTER TABLE messages ADD COLUMN ack_id TEXT")
         except sqlite3.OperationalError: pass
 
@@ -135,16 +135,14 @@ def init_db():
             last_seen TEXT,
             PRIMARY KEY (node1, node2)
         )""")
-        
         conn.commit()
         conn.close()
     except Exception as e:
-        print(f"[DB Init Error] Datenbank init fehlgeschlagen: {e}")
+        print(f"[DB Init Error] {e}")
 
 
 def haversine(lat1, lon1, lat2, lon2):
-    if lat1 == 0.0 or lon1 == 0.0 or lat2 == 0.0 or lon2 == 0.0:
-        return -1.0
+    if lat1 == 0.0 or lon1 == 0.0 or lat2 == 0.0 or lon2 == 0.0: return -1.0
     R = 6371.0
     dlat = math.radians(lat2 - lat1)
     dlon = math.radians(lon2 - lon1)
@@ -154,17 +152,14 @@ def haversine(lat1, lon1, lat2, lon2):
 
 
 def resolve_hardware_name(node_data: dict) -> str:
-    if isinstance(node_data.get("hw"), str) and node_data["hw"].strip():
-        return node_data["hw"].strip()
+    if isinstance(node_data.get("hw"), str) and node_data["hw"].strip(): return node_data["hw"].strip()
     hw_id = node_data.get("hw_id")
     if hw_id is not None:
         try:
             hid = int(hw_id)
-            if hid in HW_ID_MAP:
-                return HW_ID_MAP[hid]
+            if hid in HW_ID_MAP: return HW_ID_MAP[hid]
             return f"HW #{hid}"
-        except (ValueError, TypeError):
-            pass
+        except: pass
     return "-"
 
 
@@ -189,8 +184,7 @@ def send_pushover(title: str, msg: str) -> None:
     req = urllib.request.Request(url, data=data)
     try:
         with urllib.request.urlopen(req, timeout=4): pass
-    except Exception as e:
-        print(f"[Pushover Error] {e}")
+    except: pass
 
 
 def save_link_chain(conn, path_str, now):
@@ -228,51 +222,37 @@ def extract_coordinates(payload: dict):
             if f_lat == 0.0 and f_lon == 0.0: return None, None
             return f_lat, f_lon
         return None, None
-    except (ValueError, TypeError):
-        return None, None
+    except: return None, None
 
 
-# --- APRS-IS FUNKTIONEN ---
+# --- APRS-IS (UPLOAD) ---
 def dec_to_aprs_lat(lat):
     direction = 'N' if lat >= 0 else 'S'
-    lat = abs(lat)
-    deg = int(lat)
-    min_val = (lat - deg) * 60
+    deg = int(abs(lat))
+    min_val = (abs(lat) - deg) * 60
     return f"{deg:02d}{min_val:05.2f}{direction}"
 
 def dec_to_aprs_lon(lon):
     direction = 'E' if lon >= 0 else 'W'
-    lon = abs(lon)
-    deg = int(lon)
-    min_val = (lon - deg) * 60
+    deg = int(abs(lon))
+    min_val = (abs(lon) - deg) * 60
     return f"{deg:03d}{min_val:05.2f}{direction}"
 
 def try_aprs_upload(origin_call, path, lat, lon, is_me):
-    if not APRS_ENABLE or lat == 0.0 or lon == 0.0:
-        return
-
+    if not APRS_ENABLE or lat == 0.0 or lon == 0.0: return
     is_direct = ("," not in path)
-    if not is_me and not is_direct:
-        return
+    if not is_me and not is_direct: return
 
     now_ts = time.time()
     last_upload = aprs_upload_cache.get(origin_call, 0)
-    
-    if (now_ts - last_upload) < 900:
-        return
+    if (now_ts - last_upload) < 900: return
 
     sym_str = APRS_SYM_OWN if is_me else APRS_SYM_REMOTE
-    if len(sym_str) < 2:
-        sym_str = "\\I" if is_me else "/#"
+    if len(sym_str) < 2: sym_str = "/I" if is_me else "/#"
     
-    sym_table = sym_str[0]
-    sym_char = sym_str[1]
+    comment = " MeshCom Communicator Gateway" if is_me else " MeshCom Node"
     
-    aprs_lat = dec_to_aprs_lat(lat)
-    aprs_lon = dec_to_aprs_lon(lon)
-    comment = " MeshCom Node" if not is_me else " MeshCom Gateway"
-    
-    packet = f"{origin_call}>APRS,TCPIP*:={aprs_lat}{sym_table}{aprs_lon}{sym_char}{comment}\r\n"
+    packet = f"{origin_call}>APRS,TCPIP*:={dec_to_aprs_lat(lat)}{sym_str[0]}{dec_to_aprs_lon(lon)}{sym_str[1]}{comment}\r\n"
     auth = f"user {LOCAL_NODE_CALL} pass {APRS_PASSCODE} vers MeshComComm 1.1\r\n"
 
     def do_upload():
@@ -286,16 +266,108 @@ def try_aprs_upload(origin_call, path, lat, lon, is_me):
                 
                 now_time = datetime.datetime.now().strftime("%H:%M:%S")
                 last_udp_packets.appendleft({
-                    "time": now_time,
-                    "ip": f"APRS ➔ {APRS_SERVER}",
-                    "raw": f"Uploaded {origin_call}: {aprs_lat} {aprs_lon}"
+                    "time": now_time, "ip": f"APRS ➔ {APRS_SERVER}", "raw": f"Uploaded {origin_call}: {dec_to_aprs_lat(lat)} {dec_to_aprs_lon(lon)}"
                 })
-                print(f"[APRS-IS] Upload {origin_call}: {aprs_lat} {aprs_lon}")
-        except Exception as e:
-            print(f"[APRS-IS Error] Fehler bei Upload für {origin_call}: {e}")
-
+        except: pass
     threading.Thread(target=do_upload, daemon=True).start()
-# --- ENDE APRS ---
+
+
+# --- APRS-IS (WX LISTENER) ---
+def parse_aprs_wx(line, my_lat, my_lon):
+    match = re.search(r'(\d{2})(\d{2}\.\d{2})([NS])[\\\/]?(\d{3})(\d{2}\.\d{2})([EW])_(.*)', line)
+    if not match: return None
+    
+    deg_lat, min_lat, dir_lat, deg_lon, min_lon, dir_lon, wx_str = match.groups()
+    try:
+        lat = float(deg_lat) + float(min_lat) / 60.0
+        if dir_lat == 'S': lat = -lat
+        lon = float(deg_lon) + float(min_lon) / 60.0
+        if dir_lon == 'W': lon = -lon
+        
+        # NEU: Stationen ohne oder mit komplett ungültigen Koordinaten ignorieren
+        dist = haversine(my_lat, my_lon, lat, lon)
+        if dist < 0: return None
+        
+        temp_c = None
+        temp_m = re.search(r't(\d{3}|-\d{2})', wx_str)
+        if temp_m and temp_m.group(1) not in ['...', '   ']:
+            temp_c = (float(temp_m.group(1)) - 32) * 5.0 / 9.0
+        if temp_c is None: return None
+            
+        hum = None
+        hum_m = re.search(r'h(\d{2})', wx_str)
+        if hum_m and hum_m.group(1) != '..':
+            hum = int(hum_m.group(1))
+            if hum == 0: hum = 100
+            
+        # NEU: Windgeschwindigkeit korrekt direkt nach dem Schrägstrich auslesen
+        wind = None
+        wind_m = re.match(r'^.{3}/(\d{3})', wx_str)
+        if wind_m:
+            wind = float(wind_m.group(1)) * 1.60934
+            
+        press = None
+        press_m = re.search(r'b(\d{5})', wx_str)
+        if press_m and press_m.group(1) != '.....': press = float(press_m.group(1)) / 10.0
+            
+        rain = None
+        rain_m = re.search(r'p(\d{3})', wx_str) or re.search(r'P(\d{3})', wx_str)
+        if rain_m and rain_m.group(1) != '...': rain = float(rain_m.group(1)) * 0.254
+
+        call_match = re.match(r'^([^>]+)>', line)
+        call = call_match.group(1) if call_match else "Unbekannt"
+        
+        return {
+            "call": call, "dist": dist, "temp": temp_c, "hum": hum, 
+            "wind": wind, "press": press, "rain": rain, "ts": time.time()
+        }
+    except: return None
+
+def aprs_wx_listener_loop():
+    global aprs_wx_cache
+    while True:
+        if not APRS_WX_ENABLE:
+            time.sleep(15)
+            continue
+            
+        my_lat, my_lon = 0.0, 0.0
+        try:
+            conn = get_db_connection()
+            c = conn.cursor()
+            c.execute("SELECT lat, lon FROM mheard WHERE callsign = ?", (LOCAL_NODE_CALL,))
+            row = c.fetchone()
+            conn.close()
+            if row and row[0] and row[1]: my_lat, my_lon = row[0], row[1]
+        except: pass
+            
+        if my_lat == 0.0 and my_lon == 0.0:
+            time.sleep(30)
+            continue
+
+        auth = f"user {LOCAL_NODE_CALL} pass {APRS_PASSCODE} vers MeshComComm 1.1 filter r/{my_lat}/{my_lon}/25 t/w\r\n"
+        
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(120.0)
+                s.connect((APRS_SERVER, APRS_PORT))
+                s.sendall(auth.encode('utf-8'))
+                
+                f = s.makefile('r', encoding='utf-8', errors='ignore')
+                while True:
+                    if not APRS_WX_ENABLE: break
+                    line = f.readline()
+                    if not line: break
+                        
+                    if ">" in line and "_" in line:
+                        parsed = parse_aprs_wx(line.strip(), my_lat, my_lon)
+                        if parsed:
+                            aprs_wx_cache[parsed["call"]] = parsed
+                            
+        except socket.timeout: pass
+        except Exception as e:
+            print(f"[APRS WX Listener] Verbindungsabbruch: {e}")
+            
+        time.sleep(15)
 
 
 def upsert_map_node(c, node_data: dict, fallback_call: str, now: str):
@@ -345,7 +417,6 @@ def upsert_direct_heard(c, node_data: dict, fallback_call: str, now: str):
 
     parts = [p.strip() for p in str(raw_call).split(",") if p.strip()]
     if not parts: return
-
     if parts[-1].upper() == LOCAL_NODE_CALL.upper(): parts.pop()
     if not parts: return
 
@@ -355,23 +426,18 @@ def upsert_direct_heard(c, node_data: dict, fallback_call: str, now: str):
 
     try: snr = float(node_data.get("snr") or 0.0)
     except: snr = 0.0
-
     hw = resolve_hardware_name(node_data) if is_single_hop else "-"
     fw = extract_firmware(node_data) if is_single_hop else "-"
-    
     try: dist = float(node_data.get("dist") or -1.0) if is_single_hop else -1.0
     except: dist = -1.0
-
     try: neighbours = int(node_data.get("nb") or 0)
     except: neighbours = 0
 
     c.execute("""INSERT INTO direct_heard (callsign, last_seen, hw, snr, rssi, distance, neighbours, fw)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                  ON CONFLICT(callsign) DO UPDATE SET
-                 last_seen=excluded.last_seen,
-                 hw=CASE WHEN excluded.hw != '-' THEN excluded.hw ELSE direct_heard.hw END,
-                 snr=excluded.snr,
-                 rssi=excluded.rssi,
+                 last_seen=excluded.last_seen, hw=CASE WHEN excluded.hw != '-' THEN excluded.hw ELSE direct_heard.hw END,
+                 snr=excluded.snr, rssi=excluded.rssi,
                  distance=CASE WHEN excluded.distance != -1.0 THEN excluded.distance ELSE direct_heard.distance END,
                  neighbours=CASE WHEN excluded.neighbours != 0 THEN excluded.neighbours ELSE direct_heard.neighbours END,
                  fw=CASE WHEN excluded.fw != '-' THEN excluded.fw ELSE direct_heard.fw END""",
@@ -392,7 +458,6 @@ def udp_listener():
             now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
             last_udp_packets.appendleft({"time": now.split(" ")[1], "ip": f"RX ⬅ {addr[0]}", "raw": raw})
-
             try: payload = json.loads(raw)
             except json.JSONDecodeError: continue
 
@@ -407,16 +472,13 @@ def udp_listener():
             link_path = src
             if pkt_rssi < 0.0:
                 parts_upper = [p.strip().upper() for p in src.split(",")]
-                if LOCAL_NODE_CALL.upper() not in parts_upper:
-                    link_path = f"{src},{LOCAL_NODE_CALL}"
+                if LOCAL_NODE_CALL.upper() not in parts_upper: link_path = f"{src},{LOCAL_NODE_CALL}"
 
-            if "," in link_path:
-                save_link_chain(conn, link_path, now)
+            if "," in link_path: save_link_chain(conn, link_path, now)
 
             raw_msg = payload.get("msg", payload.get("text", ""))
             if raw_msg and payload.get("type") != "pos":
                 ack_match = re.match(r"^[\w-]+:ack(\d+)$", raw_msg.strip(), re.IGNORECASE)
-
                 if ack_match:
                     ack_id = ack_match.group(1)
                     c.execute("UPDATE messages SET ack = 1 WHERE ack_id = ?", (ack_id,))
@@ -445,9 +507,7 @@ def udp_listener():
                             elif dst in UI_TGS:
                                 should_alert = True
                                 alert_title = f"MeshCom [TG {dst}] von {src}"
-
-                            if should_alert:
-                                send_pushover(alert_title, clean_text)
+                            if should_alert: send_pushover(alert_title, clean_text)
 
             node_list = payload.get("mh") or payload.get("nodes") or payload.get("mheard") or payload.get("list")
             if isinstance(node_list, list):
@@ -469,7 +529,7 @@ def udp_listener():
 @app.route("/")
 def index():
     wx_enabled = bool(FOSHK_URL.strip())
-    resp = make_response(render_template("index.html", my_call=MY_CALL, default_tg=TARGET_TG, ui_tgs=UI_TGS, wx_enabled=wx_enabled, aprs_enabled=APRS_ENABLE))
+    resp = make_response(render_template("index.html", my_call=MY_CALL, default_tg=TARGET_TG, ui_tgs=UI_TGS, wx_enabled=wx_enabled, aprs_enabled=APRS_ENABLE, aprs_wx_enabled=APRS_WX_ENABLE))
     resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     return resp
 
@@ -477,41 +537,27 @@ def index():
 @app.route("/api/config", methods=["GET"])
 def get_config():
     return jsonify({
-        "Network": {
-            "UDP_BIND_IP": UDP_BIND_IP, "UDP_PORT": UDP_PORT, "WEB_PORT": WEB_PORT, "NODE_IP": NODE_IP
-        },
-        "Radio": {
-            "MY_CALL": MY_CALL, "LOCAL_NODE_CALL": LOCAL_NODE_CALL, "TARGET_TG": TARGET_TG, "UI_TGS": ", ".join(UI_TGS)
-        },
-        "Pushover": {
-            "TOKEN": PUSHOVER_TOKEN, "USER": PUSHOVER_USER
-        },
-        "Weather": {
-            "FOSHK_URL": FOSHK_URL
-        },
-        "Database": {
-            "DB_FILE": raw_db_path
-        },
+        "Network": {"UDP_BIND_IP": UDP_BIND_IP, "UDP_PORT": UDP_PORT, "WEB_PORT": WEB_PORT, "NODE_IP": NODE_IP},
+        "Radio": {"MY_CALL": MY_CALL, "LOCAL_NODE_CALL": LOCAL_NODE_CALL, "TARGET_TG": TARGET_TG, "UI_TGS": ", ".join(UI_TGS)},
+        "Pushover": {"TOKEN": PUSHOVER_TOKEN, "USER": PUSHOVER_USER},
+        "Weather": {"FOSHK_URL": FOSHK_URL},
+        "Database": {"DB_FILE": raw_db_path},
         "APRS": {
             "ENABLE": str(APRS_ENABLE),
-            "SERVER": APRS_SERVER,
-            "PORT": APRS_PORT,
-            "PASSCODE": APRS_PASSCODE,
-            "SYM_OWN": APRS_SYM_OWN,
-            "SYM_REMOTE": APRS_SYM_REMOTE
+            "WX_ENABLE": str(APRS_WX_ENABLE),
+            "SERVER": APRS_SERVER, "PORT": APRS_PORT, "PASSCODE": APRS_PASSCODE,
+            "SYM_OWN": APRS_SYM_OWN, "SYM_REMOTE": APRS_SYM_REMOTE
         }
     })
 
+
 @app.route("/api/config", methods=["POST"])
 def save_config():
-    global UDP_BIND_IP, UDP_PORT, WEB_PORT, NODE_IP
-    global MY_CALL, LOCAL_NODE_CALL, TARGET_TG, UI_TGS
-    global PUSHOVER_TOKEN, PUSHOVER_USER
-    global FOSHK_URL, raw_db_path, DB_FILE
-    global APRS_ENABLE, APRS_SERVER, APRS_PORT, APRS_PASSCODE, APRS_SYM_OWN, APRS_SYM_REMOTE
+    global UDP_BIND_IP, UDP_PORT, WEB_PORT, NODE_IP, MY_CALL, LOCAL_NODE_CALL, TARGET_TG, UI_TGS
+    global PUSHOVER_TOKEN, PUSHOVER_USER, FOSHK_URL, raw_db_path, DB_FILE
+    global APRS_ENABLE, APRS_WX_ENABLE, APRS_SERVER, APRS_PORT, APRS_PASSCODE, APRS_SYM_OWN, APRS_SYM_REMOTE
 
     data = request.json or {}
-    
     for sec in ['Network', 'Radio', 'Pushover', 'Weather', 'Database', 'APRS']:
         if not config.has_section(sec): config.add_section(sec)
 
@@ -519,20 +565,19 @@ def save_config():
     config.set('Network', 'UDP_BIND_IP', str(data.get('UDP_BIND_IP', UDP_BIND_IP)))
     config.set('Network', 'UDP_PORT', str(data.get('UDP_PORT', UDP_PORT)))
     config.set('Network', 'WEB_PORT', str(data.get('WEB_PORT', WEB_PORT)))
-
     config.set('Radio', 'MY_CALL', str(data.get('MY_CALL', MY_CALL)))
     config.set('Radio', 'LOCAL_NODE_CALL', str(data.get('LOCAL_NODE_CALL', LOCAL_NODE_CALL)))
     config.set('Radio', 'TARGET_TG', str(data.get('TARGET_TG', TARGET_TG)))
     config.set('Radio', 'UI_TGS', str(data.get('UI_TGS', ", ".join(UI_TGS))))
-
     config.set('Pushover', 'TOKEN', str(data.get('PUSHOVER_TOKEN', PUSHOVER_TOKEN)))
     config.set('Pushover', 'USER', str(data.get('PUSHOVER_USER', PUSHOVER_USER)))
-
     config.set('Weather', 'FOSHK_URL', str(data.get('FOSHK_URL', FOSHK_URL)))
     config.set('Database', 'DB_FILE', str(data.get('DB_FILE', raw_db_path)))
 
     aprs_en_str = str(data.get('APRS_ENABLE', 'False'))
+    aprs_wx_str = str(data.get('APRS_WX_ENABLE', 'False'))
     config.set('APRS', 'ENABLE', aprs_en_str)
+    config.set('APRS', 'WX_ENABLE', aprs_wx_str)
     config.set('APRS', 'SERVER', str(data.get('APRS_SERVER', APRS_SERVER)))
     config.set('APRS', 'PORT', str(data.get('APRS_PORT', APRS_PORT)))
     config.set('APRS', 'PASSCODE', str(data.get('APRS_PASSCODE', APRS_PASSCODE)))
@@ -540,25 +585,21 @@ def save_config():
     config.set('APRS', 'SYM_REMOTE', str(data.get('APRS_SYM_REMOTE', APRS_SYM_REMOTE)))
 
     try:
-        with open(ini_path, 'w') as configfile:
-            config.write(configfile)
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+        with open(ini_path, 'w') as configfile: config.write(configfile)
+    except Exception as e: return jsonify({"status": "error", "message": str(e)}), 500
 
     NODE_IP = str(data.get('NODE_IP', NODE_IP))
     MY_CALL = str(data.get('MY_CALL', MY_CALL))
     LOCAL_NODE_CALL = str(data.get('LOCAL_NODE_CALL', LOCAL_NODE_CALL))
     TARGET_TG = str(data.get('TARGET_TG', TARGET_TG))
-    
     raw_ui = str(data.get('UI_TGS', ""))
     UI_TGS = [t.strip() for t in raw_ui.split(',') if t.strip()]
     if not UI_TGS: UI_TGS = [TARGET_TG]
-
     PUSHOVER_TOKEN = str(data.get('PUSHOVER_TOKEN', PUSHOVER_TOKEN))
     PUSHOVER_USER = str(data.get('PUSHOVER_USER', PUSHOVER_USER))
     FOSHK_URL = str(data.get('FOSHK_URL', FOSHK_URL))
-    
     APRS_ENABLE = (aprs_en_str.lower() in ('true', '1', 'yes', 'on'))
+    APRS_WX_ENABLE = (aprs_wx_str.lower() in ('true', '1', 'yes', 'on'))
     APRS_SERVER = str(data.get('APRS_SERVER', APRS_SERVER))
     APRS_PORT = int(data.get('APRS_PORT', APRS_PORT))
     APRS_PASSCODE = str(data.get('APRS_PASSCODE', APRS_PASSCODE))
@@ -568,56 +609,67 @@ def save_config():
     return jsonify({"status": "ok"})
 
 
+@app.route("/api/wx_header", methods=["GET"])
+def api_wx_header():
+    if not APRS_WX_ENABLE: return jsonify({"status": "disabled"})
+        
+    now = time.time()
+    valid_stations = [v for k, v in aprs_wx_cache.items() if (now - v["ts"]) < 7200]
+    
+    if not valid_stations: return jsonify({"status": "empty"})
+        
+    closest = min(valid_stations, key=lambda x: x["dist"])
+    
+    # NEU: "k.A." bei fehlenden Werten
+    def f(val, dec=1): return f"{val:.{dec}f}" if val is not None else "k.A."
+    
+    return jsonify({
+        "status": "ok",
+        "call": closest["call"], "dist": f(closest["dist"]),
+        "temp": f(closest["temp"]), "hum": f(closest["hum"], 0),
+        "wind": f(closest["wind"]), "press": f(closest["press"]),
+        "rain": f(closest["rain"]), "age_min": int((now - closest["ts"]) / 60)
+    })
+
+
 @app.route("/api/data")
 def get_data():
     try: hours = int(request.args.get("hours", 24))
     except (ValueError, TypeError): hours = 24
-
     conn = None
     try:
         conn = get_db_connection()
         c = conn.cursor()
-        
         c.execute("SELECT timestamp, src, dst, text, ack FROM messages ORDER BY id DESC LIMIT 100")
         msgs = [{"time": r[0], "src": r[1], "dst": r[2], "text": r[3], "ack": r[4]} for r in c.fetchall()]
-
         c.execute("SELECT lat, lon FROM mheard WHERE callsign = ?", (LOCAL_NODE_CALL,))
         loc_row = c.fetchone()
         my_lat, my_lon = (loc_row[0], loc_row[1]) if loc_row and loc_row[0] and loc_row[1] else (0.0, 0.0)
 
         c.execute("""SELECT d.callsign, d.last_seen, d.hw, d.snr, d.rssi, d.neighbours, m.lat, m.lon, d.fw
-                     FROM direct_heard d
-                     LEFT JOIN mheard m ON d.callsign = m.callsign
-                     ORDER BY d.last_seen DESC LIMIT 30""")
-        
+                     FROM direct_heard d LEFT JOIN mheard m ON d.callsign = m.callsign ORDER BY d.last_seen DESC LIMIT 30""")
         direct_nodes = []
         for r in c.fetchall():
             call, last, hw, snr, rssi, nb, lat, lon, fw = r
             calc_dist = -1.0
             if my_lat != 0.0 and my_lon != 0.0 and lat and lon and lat != 0.0 and lon != 0.0:
                 calc_dist = haversine(my_lat, my_lon, lat, lon)
-            
             c.execute("""SELECT COUNT(DISTINCT CASE WHEN node1 = ? THEN node2 ELSE node1 END) 
                          FROM links WHERE (node1 = ? OR node2 = ?) AND last_seen >= datetime('now', 'localtime', '-24 hours')""", (call, call, call))
             db_nb = c.fetchone()[0]
             final_nb = db_nb if db_nb > 0 else (nb or 0)
-
-            direct_nodes.append({
-                "call": call, "last": last, "hw": hw, "snr": snr, "rssi": rssi, "dist": calc_dist, "neighbours": final_nb, "fw": fw
-            })
+            direct_nodes.append({"call": call, "last": last, "hw": hw, "snr": snr, "rssi": rssi, "dist": calc_dist, "neighbours": final_nb, "fw": fw})
 
         c.execute("""SELECT m.callsign, m.path, MAX(m.last_seen, COALESCE(d.last_seen, '')) as recent_time,
                             m.hw, m.snr, m.rssi, m.distance, m.lat, m.lon, m.alt, m.fw 
                      FROM mheard m LEFT JOIN direct_heard d ON m.callsign = d.callsign
                      WHERE m.last_seen >= datetime('now', 'localtime', ?) OR d.last_seen >= datetime('now', 'localtime', ?)
                      ORDER BY recent_time DESC LIMIT 100""", (f"-{hours} hours", f"-{hours} hours"))
-                     
         map_nodes = [{"call": r[0], "path": r[1] or "", "last": r[2], "hw": r[3], "snr": r[4], "rssi": r[5], "dist": r[6], "lat": r[7], "lon": r[8], "alt": r[9], "fw": r[10]} for r in c.fetchall()]
 
         c.execute("SELECT node1, node2, last_seen FROM links WHERE last_seen >= datetime('now', 'localtime', ?)", (f"-{hours} hours",))
         links = [{"from": r[0], "to": r[1], "last": r[2]} for r in c.fetchall()]
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+    except Exception as e: return jsonify({"status": "error", "message": str(e)}), 500
     finally:
         if conn: conn.close()
 
@@ -634,8 +686,7 @@ def clear_heard():
         conn.execute("DELETE FROM direct_heard")
         conn.commit()
         return jsonify({"status": "ok"})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+    except Exception as e: return jsonify({"status": "error", "message": str(e)}), 500
     finally:
         if conn: conn.close()
 
@@ -645,9 +696,7 @@ def send_msg():
     data = request.json or {}
     dst = data.get("dst", TARGET_TG).strip()
     text = data.get("text", "").strip()
-
     if not text: return jsonify({"status": "error", "message": "Text darf nicht leer sein"}), 400
-
     try:
         payload = {"type": "msg", "dst": dst, "msg": text}
         raw_str = json.dumps(payload)
@@ -656,27 +705,25 @@ def send_msg():
         now_time = datetime.datetime.now().strftime("%H:%M:%S")
         last_udp_packets.appendleft({"time": now_time, "ip": f"TX ➔ {NODE_IP}", "raw": raw_str})
         return jsonify({"status": "ok"})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+    except Exception as e: return jsonify({"status": "error", "message": str(e)}), 500
 
 
 @app.route("/api/get_wx", methods=["GET"])
 def get_wx():
-    if not FOSHK_URL:
-        return jsonify({"status": "error", "message": "Keine Wetter-URL konfiguriert."}), 400
-
+    if not FOSHK_URL: return jsonify({"status": "error", "message": "Keine Wetter-URL konfiguriert."}), 400
+    
+    # NEU: "k.A." bei fehlenden Werten auch beim lokalen Abruf
     def get_val(raw_text, key, decimals=1):
         match = re.search(rf"\b{key}\b[^\d-]*([-\d.]+)", raw_text, re.IGNORECASE)
         if match:
             try: return f"{float(match.group(1)):.{decimals}f}"
             except: pass
-        return "--"
-
+        return "k.A."
+        
     try:
         req = urllib.request.Request(FOSHK_URL)
         with urllib.request.urlopen(req, timeout=5) as response:
             raw_text = response.read().decode('utf-8', errors='replace')
-
         temp = get_val(raw_text, "tempc", 1)
         hum = get_val(raw_text, "humidity", 0)
         wind = get_val(raw_text, "windspeedkmh", 1)
@@ -684,14 +731,13 @@ def get_wx():
         gust = get_val(raw_text, "windgustkmh", 1)
         rain_day = get_val(raw_text, "dailyrainmm", 1)
         rain_week = get_val(raw_text, "weeklyrainmm", 1)
-
         wx_text = f"WX Wilgersdorf (https://wetter.r-bender.de) 🌡️{temp}°C 💧{hum}% 💨{wind}km/h (Böen {gust}) 📉{press}hPa ☔Tag:{rain_day}mm/Wo:{rain_week}mm"
         return jsonify({"status": "ok", "text": wx_text})
-    except Exception as e:
-        return jsonify({"status": "error", "message": f"Fehler beim Abruf: {str(e)}"}), 500
+    except Exception as e: return jsonify({"status": "error", "message": f"Fehler beim Abruf: {str(e)}"}), 500
 
 
 if __name__ == "__main__":
     init_db()
     threading.Thread(target=udp_listener, daemon=True).start()
+    threading.Thread(target=aprs_wx_listener_loop, daemon=True).start()
     app.run(host=UDP_BIND_IP, port=WEB_PORT, debug=False)
