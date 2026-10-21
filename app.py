@@ -675,7 +675,7 @@ def get_wx():
     try:
         req = urllib.request.Request(FOSHK_URL)
         with urllib.request.urlopen(req, timeout=5) as response:
-            raw_text = response.read().decode('utf-8')
+            raw_text = response.read().decode('utf-8', errors='replace')
 
         temp = get_val(raw_text, "tempc", 1)
         hum = get_val(raw_text, "humidity", 0)
