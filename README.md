@@ -27,7 +27,7 @@ Ein interaktives Web-Dashboard und Backend für [MeshCom](https://icssw.org/mesh
 
 **1. Repository klonen**
 ```bash
-git clone [https://github.com/rbender23/meshcom-communicator.git](https://github.com/rbender23/meshcom-communicator.git)
+git clone https://github.com/rbender23/meshcom-communicator.git
 cd meshcom-communicator
 ```
 
