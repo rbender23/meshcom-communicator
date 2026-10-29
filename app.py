@@ -60,13 +60,15 @@ APRS_SYM_REMOTE = config.get('APRS', 'SYM_REMOTE', fallback="/#")
 # --- ENDE KONFIGURATION ---
 
 HW_ID_MAP = {
-    1: "TLORA V2", 2: "TLORA V1", 3: "TLORA V2.1", 4: "TBEAM",
-    5: "TBEAM V1.2", 6: "TBEAM 0.7", 7: "T-ECHO", 8: "T-DECK",
-    9: "RAK4631", 10: "HELTEC V2", 11: "HELTEC V1", 12: "TBEAM AX2101",
-    13: "EBYTE E22", 39: "EBYTE E22", 40: "TBEAM SUPREME", 41: "PIO TLORA",
-    42: "HELTEC V2", 43: "HELTEC V3", 44: "HELTEC T114", 45: "T-DECK PLUS",
-    46: "T3-S3", 47: "T5 EPAPER", 48: "EBYTE E22 S3", 49: "T-LORA PAGER",
-    50: "T-CONNECT PRO", 51: "HELTEC W-TRACKER", 61: "T-WATCH S3"
+    1: "TLORA V2", 2: "TLORA V1", 3: "TLORA V2 1.6", 4: "T-BEAM 1.1",
+    5: "T-BEAM-1268", 6: "T-BEAM-0.7", 7: "T-ECHO", 8: "T-DECK",
+    9: "Wisblock RAK4631", 10: "HELTEC V2", 11: "HELTEC V1", 12: "TBEAM-AXP2101",
+    39: "EBYTE E22", 40: "TBEAM SUPREME", 41: "Heltec Tracker",
+    42: "Heltec Stick v3", 43: "HELTEC V3", 44: "Heltec E290", 45: "T-BEAM 1.2",
+    46: "T-DECK-PLUS", 47: "TBEAM SUPREME L76K GPS", 48: "Ebyte Lora E22 ESP32-S3",
+    49: "T-Lora Pager", 50: "T-Deck Pro", 51: "LilyGo T-Beam 1W", 52: "Heltec Wifi Lora 32 v4",
+    53: "Lilygo T-ETH-ELite", 54: "Heltec T114", 55: "Lilygo T3 S3 V1.3",
+    56: "Lilygo T-Connect Pro", 57: "Heltec Wireless Paper", 61: "T-WATCH S3"
 }
 
 app = Flask(__name__)
@@ -284,7 +286,6 @@ def parse_aprs_wx(line, my_lat, my_lon):
         lon = float(deg_lon) + float(min_lon) / 60.0
         if dir_lon == 'W': lon = -lon
         
-        # NEU: Stationen ohne oder mit komplett ungültigen Koordinaten ignorieren
         dist = haversine(my_lat, my_lon, lat, lon)
         if dist < 0: return None
         
@@ -300,7 +301,6 @@ def parse_aprs_wx(line, my_lat, my_lon):
             hum = int(hum_m.group(1))
             if hum == 0: hum = 100
             
-        # NEU: Windgeschwindigkeit korrekt direkt nach dem Schrägstrich auslesen
         wind = None
         wind_m = re.match(r'^.{3}/(\d{3})', wx_str)
         if wind_m:
@@ -620,7 +620,6 @@ def api_wx_header():
         
     closest = min(valid_stations, key=lambda x: x["dist"])
     
-    # NEU: "k.A." bei fehlenden Werten
     def f(val, dec=1): return f"{val:.{dec}f}" if val is not None else "k.A."
     
     return jsonify({
@@ -712,7 +711,6 @@ def send_msg():
 def get_wx():
     if not FOSHK_URL: return jsonify({"status": "error", "message": "Keine Wetter-URL konfiguriert."}), 400
     
-    # NEU: "k.A." bei fehlenden Werten auch beim lokalen Abruf
     def get_val(raw_text, key, decimals=1):
         match = re.search(rf"\b{key}\b[^\d-]*([-\d.]+)", raw_text, re.IGNORECASE)
         if match:
