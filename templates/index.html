@@ -247,8 +247,6 @@
     let map = null;
     let markersLayer = null;
     let linesLayer = null;
-    
-    // HIER HABEN DIE BEIDEN VARIABLEN GEFEHLT!
     let existingMarkers = {};
     let existingLines = {};
 
@@ -426,7 +424,9 @@
               <span class="mention-btn" title="Im Text erwähnen (@)" onclick="mentionCall('${origin}')">@</span>
               <span class="path-text">${path}</span>
             </td>
-            <td class="${dstClass}">${m.dst}</td>
+            <td class="${dstClass}">
+              <span style="cursor: pointer; text-decoration: underline dotted;" title="Als Ziel übernehmen" onclick="selectCall('${m.dst}')">${m.dst}</span>
+            </td>
             <td>${m.text}${m.ack ? '<span style="color: #81c784; font-size: 0.95em; margin-left: 8px;" title="ACK empfangen">✔️</span>' : ''}</td>
           </tr>`;
       }).join('');

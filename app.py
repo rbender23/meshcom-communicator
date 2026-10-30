@@ -153,6 +153,24 @@ def haversine(lat1, lon1, lat2, lon2):
     return R * c
 
 
+def get_maidenhead(lat, lon):
+    try:
+        if lat == 0.0 or lon == 0.0: return "JO30nt"
+        lon = float(lon) + 180.0
+        lat = float(lat) + 90.0
+        chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        loc = chars[int(lon/20)] + chars[int(lat/10)]
+        lon = (lon % 20)
+        lat = (lat % 10)
+        loc += str(int(lon/2)) + str(int(lat/1))
+        lon = (lon % 2) * 60
+        lat = (lat % 1) * 60
+        loc += chars[int(lon/5)].lower() + chars[int(lat/2.5)].lower()
+        return loc
+    except:
+        return "JO30nt"
+
+
 def resolve_hardware_name(node_data: dict) -> str:
     if isinstance(node_data.get("hw"), str) and node_data["hw"].strip(): return node_data["hw"].strip()
     hw_id = node_data.get("hw_id")
@@ -718,6 +736,17 @@ def get_wx():
             except: pass
         return "k.A."
         
+    my_locator = "JO30nt"
+    try:
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute("SELECT lat, lon FROM mheard WHERE callsign = ?", (LOCAL_NODE_CALL,))
+        row = c.fetchone()
+        conn.close()
+        if row and row[0] and row[1]:
+            my_locator = get_maidenhead(row[0], row[1])
+    except: pass
+        
     try:
         req = urllib.request.Request(FOSHK_URL)
         with urllib.request.urlopen(req, timeout=5) as response:
@@ -729,7 +758,9 @@ def get_wx():
         gust = get_val(raw_text, "windgustkmh", 1)
         rain_day = get_val(raw_text, "dailyrainmm", 1)
         rain_week = get_val(raw_text, "weeklyrainmm", 1)
-        wx_text = f"WX Wilgersdorf (https://wetter.r-bender.de) 🌡️{temp}°C 💧{hum}% 💨{wind}km/h (Böen {gust}) 📉{press}hPa ☔Tag:{rain_day}mm/Wo:{rain_week}mm"
+        
+        wx_text = f"WX {my_locator} (https://wetter.r-bender.de) 🌡️{temp}°C 💧{hum}% 💨{wind}km/h (Böen {gust}) 📉{press}hPa ☔Tag:{rain_day}mm/Wo:{rain_week}mm"
+        
         return jsonify({"status": "ok", "text": wx_text})
     except Exception as e: return jsonify({"status": "error", "message": f"Fehler beim Abruf: {str(e)}"}), 500
 
